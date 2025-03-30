@@ -1,6 +1,6 @@
-const router = require('express').Router();
-const WishlistItem = require('../models/WishlistItem');
+const express = require('express');
 const axios = require('axios');
+const router = express.Router();
 
 const ensureAuthenticated = (req, res, next) => req.isAuthenticated() ? next() : res.status(401).json({ error: 'Unauthorized' });
 
@@ -17,34 +17,33 @@ router.post('/', ensureAuthenticated, async (req, res) => {
 });
 
 router.get('/search', ensureAuthenticated, async (req, res) => {
-    const { q } = req.query;
-    try {
-      const response = await axios.get('https://customsearch.googleapis.com/customsearch/v1', {
-        params: {
-          key: process.env.GOOGLE_SHOPPING_API_KEY,
-          cx: process.env.GOOGLE_CX,
-          // q: `${q} site:*.com | site:*.co | site:*.shop -inurl:(login | signup)`, // Focus on product pages
-          q: q,
-          num: 10, // Max results per call
-        },
-      });
-      const products = response.data.items.map(item => ({
-        name: item.title,
-        price: extractPrice(item.snippet) || 0, // Simple price extraction; improve as needed
-        url: item.link,
-        imageUrl: item.pagemap?.cse_image?.[0]?.src || '',
-      }));
-      res.json(products);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Search failed' });
-    }
+  const { q } = req.query;
+  try {
+    const response = await axios.get('https://serpapi.com/search', {
+      params: {
+        api_key: process.env.SERPAPI_KEY,
+        engine: 'google_shopping',
+        q,
+        num: 10 // Max results per request (adjustable)
+      }
+    });
+    // Check if shopping_results exists, fallback to empty array
+    const shoppingResults = response.data.shopping_results || [];
+    const products = shoppingResults.map(item => ({
+      name: item.title,
+      price: parseFloat(item.price?.replace(/[^0-9.]/g, '') || '0') || 0,
+      url: item.link,
+      imageUrl: item.thumbnail || '',
+      ...item
+    }));
+    res.json(products);
+  } catch (error) {
+    console.error('SerpApi Search Error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Search failed' });
+  }
 });
-  
-// Basic price extraction from snippet (improve with regex or external API later)
-function extractPrice(snippet) {
-    const match = snippet.match(/\$[\d,]+\.?\d{0,2}/);
-    return match ? parseFloat(match[0].replace(/[^0-9.]/g, '')) : null;
-}
+
+// Assuming WishlistItem model is imported
+const WishlistItem = require('../models/WishlistItem');
 
 module.exports = router;
