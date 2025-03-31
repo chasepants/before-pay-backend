@@ -10,8 +10,10 @@ router.get('/', ensureAuthenticated, async (req, res) => {
 });
 
 router.post('/', ensureAuthenticated, async (req, res) => {
-  const { name, price, url, imageUrl, savingsGoal } = req.body;
-  const item = new WishlistItem({ userId: req.user._id, name, price, url, imageUrl, savingsGoal });
+  const item = new WishlistItem({
+    userId: req.user._id,
+    ...req.body
+  });
   await item.save();
   res.status(201).json(item);
 });
@@ -30,10 +32,7 @@ router.get('/search', ensureAuthenticated, async (req, res) => {
     // Check if shopping_results exists, fallback to empty array
     const shoppingResults = response.data.shopping_results || [];
     const products = shoppingResults.map(item => ({
-      name: item.title,
       price: parseFloat(item.price?.replace(/[^0-9.]/g, '') || '0') || 0,
-      url: item.link,
-      imageUrl: item.thumbnail || '',
       ...item
     }));
     res.json(products);
