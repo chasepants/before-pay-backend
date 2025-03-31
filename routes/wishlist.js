@@ -18,6 +18,13 @@ router.post('/', ensureAuthenticated, async (req, res) => {
   res.status(201).json(item);
 });
 
+router.delete('/:id', ensureAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  console.log("deleting item")
+  await WishlistItem.deleteOne({ _id: id, userId: req.user._id });
+  res.json({ success: true });
+});
+
 router.get('/search', ensureAuthenticated, async (req, res) => {
   const { q } = req.query;
   try {
