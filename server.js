@@ -12,10 +12,6 @@ const wishlistRoutes = require('./routes/wishlist');
 
 const app = express();
 
-mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error(err));
-
 app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
 app.use(express.json());
 app.use(session({
@@ -30,5 +26,9 @@ app.use(passport.session());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+
+mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.error(err));
 
 module.exports = app;
