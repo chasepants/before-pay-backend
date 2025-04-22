@@ -23,7 +23,10 @@ const wishlistItemSchema = new Schema({
   delivery: { type: String },
   savings_goal: { type: Number, required: true },
   savings_progress: { type: Number, default: 0 },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  stripeCustomerId: String,
+  paymentMethodId: String,
+  subscriptionId: String
 });
 
 module.exports = mongoose.model('WishlistItem', wishlistItemSchema);
