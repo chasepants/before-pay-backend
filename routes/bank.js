@@ -99,7 +99,8 @@ router.post('/transfer', async (req, res) => {
       customer: customerId,
       items: [{ price: price.id }],
       default_payment_method: payment_method_id,
-      billing_cycle_anchor: startTimestamp
+      billing_cycle_anchor: startTimestamp,
+      proration_behavior: 'none'
     });
     wishlistItem.subscriptionId = subscription.id;
     await wishlistItem.save();
