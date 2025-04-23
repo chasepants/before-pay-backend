@@ -22,7 +22,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
   let event;
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    console.log('Webhook event received:', event.type);
+    console.log('Webhook event received:', event.type, 'ID:', event.id);
   } catch (err) {
     console.error('Webhook signature verification failed:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -31,7 +31,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
   if (event.type === 'invoice.payment_succeeded') {
     const subscriptionId = event.data.object.subscription;
     const amount = event.data.object.amount_paid / 100;
-    console.log('Processing invoice.payment_succeeded:', { subscriptionId, amount });
+    console.log('Processing invoice.payment_succeeded:', { subscriptionId, amount, invoiceId: event.data.object.id });
     try {
       const wishlistItem = await WishlistItem.findOne({ subscriptionId });
       if (wishlistItem) {
@@ -40,13 +40,15 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
         user.totalSavings += amount;
         await wishlistItem.save();
         await user.save();
-        console.log('Savings updated for wishlist item:', wishlistItem._id);
+        console.log('Savings updated for wishlist item:', wishlistItem._id, 'New progress:', wishlistItem.savings_progress);
       } else {
         console.log('No wishlist item found for subscription:', subscriptionId);
       }
     } catch (error) {
-      console.error('Error updating savings:', error);
+      console.error('Error updating savings:', error.message, error.stack);
     }
+  } else {
+    console.log('Unhandled webhook event:', event.type);
   }
 
   res.json({ received: true });

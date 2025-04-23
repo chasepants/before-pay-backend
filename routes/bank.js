@@ -112,6 +112,36 @@ router.post('/transfer', async (req, res) => {
   }
 });
 
+// Fetch subscription transaction history
+router.get('/subscription-history/:subscriptionId', async (req, res) => {
+  const { subscriptionId } = req.params;
+  try {
+    if (!subscriptionId) {
+      console.error('No subscriptionId provided');
+      return res.status(400).json({ error: 'Subscription ID required' });
+    }
+    console.log('Fetching transaction history for subscription:', subscriptionId);
+    
+    // Fetch invoices for the subscription
+    const invoices = await stripe.invoices.list({
+      subscription: subscriptionId,
+      status: 'paid'
+    });
+
+    const transactions = invoices.data.map(invoice => ({
+      date: invoice.created,
+      amount: invoice.amount_paid,
+      status: invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)
+    }));
+
+    console.log('Transactions retrieved:', transactions);
+    res.json({ transactions });
+  } catch (error) {
+    console.error('Subscription history error:', error.message, error.stack);
+    res.status(500).json({ error: error.message || 'Failed to fetch transaction history' });
+  }
+});
+
 // Manual payout
 router.post('/payout', async (req, res) => {
   const { wishlistItemId } = req.body;
@@ -122,6 +152,7 @@ router.post('/payout', async (req, res) => {
       console.error('Wishlist item not found:', wishlistItemId);
       return res.status(404).json({ error: 'Wishlist item not found' });
     }
+    console.log('Wishlist item found:', { savings_progress: wishlistItem.savings_progress, savings_goal: wishlistItem.savings_goal });
     if (wishlistItem.savings_progress >= wishlistItem.savings_goal) {
       const payout = await stripe.payouts.create({
         amount: wishlistItem.savings_progress * 100,
@@ -130,14 +161,14 @@ router.post('/payout', async (req, res) => {
       });
       wishlistItem.savings_progress = 0;
       await wishlistItem.save();
-      console.log('Payout successful:', payout.id);
+      console.log('Payout successful:', payout.id, 'Amount:', wishlistItem.savings_progress * 100);
       res.json({ success: true, payoutId: payout.id });
     } else {
-      console.error('Goal not reached for item:', wishlistItemId);
+      console.error('Goal not reached for item:', wishlistItemId, 'Progress:', wishlistItem.savings_progress, 'Goal:', wishlistItem.savings_goal);
       return res.status(400).json({ error: 'Goal not reached' });
     }
   } catch (error) {
-    console.error('Payout error:', error);
+    console.error('Payout error:', error.message, error.stack);
     res.status(500).json({ error: error.message || 'Failed to payout' });
   }
 });
