@@ -24,6 +24,8 @@ router.get('/:id', ensureAuthenticated, async (req, res) => {
       console.error('Wishlist item not found:', id);
       return res.status(404).json({ error: 'Wishlist item not found' });
     }
+    console.error('Wishlist item found:', id);
+
     res.json(item);
   } catch (error) {
     console.error('Wishlist item fetch error:', error.message, error.stack);

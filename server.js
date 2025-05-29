@@ -18,6 +18,7 @@ const app = express();
 
 // Webhook endpoint (no auth, raw body)
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  console.log('Webhook');
   const sig = req.headers['stripe-signature'];
   let event;
   try {
@@ -47,6 +48,27 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     } catch (error) {
       console.error('Error updating savings:', error.message, error.stack);
     }
+  } else if (event.type === 'financial_connections.account.created') {
+    const account = event.data.object;
+      console.log('Processing financial_connections.account.created:', {
+        accountId: account.id,
+        customer: account.account_holder?.customer,
+        last4: account.last4,
+        institution: account.institution_name
+      });
+      if (!account.account_holder?.customer) {
+        console.error('No customer ID in account_holder:', account);
+        return res.json({ received: true, error: 'No customer ID provided' });
+      }
+      const wishlistItem = await WishlistItem.findOne({ stripeCustomerId: account.account_holder.customer });
+      if (wishlistItem) {
+        wishlistItem.payoutBankAccountId = account.id;
+        await wishlistItem.save();
+        console.log('Payout bank account linked for wishlist item:', wishlistItem._id, 'Account ID:', account.id);
+      } else {
+        console.error('No wishlist item found for customer:', account.account_holder.customer);
+        return res.json({ received: true, error: 'No wishlist item found for customer' });
+      }
   } else {
     console.log('Unhandled webhook event:', event.type);
   }
