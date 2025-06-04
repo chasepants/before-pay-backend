@@ -4,8 +4,7 @@ const Schema = mongoose.Schema;
 const userSchema = new Schema({
   googleId: { type: String, required: true, unique: true },
   name: String,
-  email: String,
-  connectedAccountId: { type: String } // For Stripe Connect
+  email: String
 });
 
 module.exports = mongoose.model('User', userSchema);

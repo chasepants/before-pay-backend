@@ -41,49 +41,22 @@ router.post('/setup-intent', ensureAuthenticated, async (req, res) => {
     const setupIntent = await stripe.setupIntents.create({
       payment_method_types: ['us_bank_account'],
       customer: customerId,
-      usage: 'off_session'
+      usage: 'off_session',
+      metadata: { wishlistItemId }
     });
+    
+    if (!setupIntent) {
+      console.log('Failed to created setup intent', wishlistItemId);
+      res.status(500).json({ error: 'Could not connect to secure account linking'});
+    }
+
+    wishlistItem.setupIntentId = setupIntent.id;
+    wishlistItem.save();
+
     res.json({ client_secret: setupIntent.client_secret });
   } catch (error) {
     console.error('Setup intent error:', error.message, error.stack);
     res.status(500).json({ error: error.message || 'Failed to create setup intent' });
-  }
-});
-
-// Stripe Connect onboarding
-router.get('/onboard-connect', ensureAuthenticated, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      console.error('User not found for ID:', req.user._id);
-      return res.status(404).json({ error: 'User not found' });
-    }
-    let connectedAccountId = user.connectedAccountId;
-    if (!connectedAccountId) {
-      const account = await stripe.accounts.create({
-        type: 'standard',
-        country: 'US',
-        email: user.email,
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true }
-        }
-      });
-      connectedAccountId = account.id;
-      user.connectedAccountId = connectedAccountId;
-      await user.save();
-      console.log('Created new connected account:', connectedAccountId);
-    }
-    const accountLink = await stripe.accountLinks.create({
-      account: connectedAccountId,
-      refresh_url: `${process.env.APP_URL}/connect-refresh`,
-      return_url: `${process.env.APP_URL}/connect-return`,
-      type: 'account_onboarding'
-    });
-    res.json({ url: accountLink.url });
-  } catch (error) {
-    console.error('Onboarding error:', error.message, error.stack);
-    res.status(500).json({ error: error.message || 'Failed to start onboarding' });
   }
 });
 
@@ -180,7 +153,6 @@ router.get('/subscription-history/:subscriptionId', async (req, res) => {
   }
 });
 
-// Payout using connected account
 router.post('/payout', ensureAuthenticated, async (req, res) => {
   const { wishlistItemId } = req.body;
   try {
@@ -190,28 +162,44 @@ router.post('/payout', ensureAuthenticated, async (req, res) => {
       console.error('Wishlist item not found:', wishlistItemId);
       return res.status(404).json({ error: 'Wishlist item not found' });
     }
-    const user = await User.findById(wishlistItem.userId);
-    if (!user || !user.connectedAccountId) {
-      console.error('User has not set up payouts for wishlist item:', wishlistItemId);
+
+    if (!wishlistItem.paymentMethodId) {
+      console.error('No payment method id linked for wishlist item:', wishlistItemId);
       return res.status(400).json({ error: 'Please set up your payout account via Setup Payout' });
     }
     console.log('Wishlist item found:', { savings_progress: wishlistItem.savings_progress, savings_goal: wishlistItem.savings_goal });
-    if (wishlistItem.savings_progress < wishlistItem.savings_goal) {
-      console.error('Goal not reached for item:', wishlistItemId, 'Progress:', wishlistItem.savings_progress, 'Goal:', wishlistItem.savings_goal);
-      return res.status(400).json({ error: 'Savings goal not reached' });
+
+    // Retrieve the PaymentMethod using paymentMethodId
+    const paymentMethod = await stripe.paymentMethods.retrieve(wishlistItem.paymentMethodId);
+    console.log('Retrieved PaymentMethod:', {
+      id: paymentMethod.id,
+      type: paymentMethod.type,
+      us_bank_account: paymentMethod.us_bank_account
+    });
+
+    // Find the associated Financial Connections Account
+    if (!paymentMethod.us_bank_account?.financial_connections_account) {
+      console.error('No financial connections account linked for payment method:', wishlistItem.paymentMethodId);
+      return res.status(400).json({ error: 'No financial account linked to this payment method. Please set up a savings plan with a valid bank account.' });
     }
 
-    const transfer = await stripe.transfers.create({
+    const financialAccountId = paymentMethod.us_bank_account.financial_connections_account;
+    console.log('Found Financial Connections Account ID:', financialAccountId);
+    console.log(paymentMethod);
+    // Create a payout to the user's bank account using the financial account ID
+    const payout = await stripe.treasury.outboundPayments.create({
       amount: wishlistItem.savings_progress * 100,
       currency: 'usd',
-      destination: user.connectedAccountId,
+      financial_account: financialAccountId,
+      customer: wishlistItem.stripeCustomerId,
+      destination_payment_method: wishlistItem.paymentMethodId,
       description: `Payout for wishlist item ${wishlistItemId}`
     });
 
     wishlistItem.savings_progress = 0;
     await wishlistItem.save();
-    console.log('Payout successful:', transfer.id, 'Amount:', wishlistItem.savings_progress * 100);
-    res.json({ success: true, transferId: transfer.id });
+    console.log('Payout successful:', payout.id, 'Amount:', wishlistItem.savings_progress * 100);
+    res.json({ success: true, payoutId: payout.id });
   } catch (error) {
     console.error('Payout error:', error.message, error.stack);
     res.status(500).json({ error: error.message || 'Failed to payout' });

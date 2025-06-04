@@ -27,7 +27,6 @@ const wishlistItemSchema = new Schema({
   stripeCustomerId: String,
   paymentMethodId: String,
   subscriptionId: String,
-  payoutBankAccountId: String
 });
 
 module.exports = mongoose.model('WishlistItem', wishlistItemSchema);
