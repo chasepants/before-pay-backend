@@ -1,3 +1,4 @@
+// backend/models/WishlistItem.js
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
@@ -24,9 +25,12 @@ const wishlistItemSchema = new Schema({
   savings_goal: { type: Number, required: true },
   savings_progress: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
-  stripeCustomerId: String,
-  paymentMethodId: String,
-  subscriptionId: String,
+  fundingSourceId: String,
+  savingsAmount: Number,
+  savingsFrequency: String,
+  savingsStartDate: String,
+  bankName: String,
+  bankAccountName: String
 });
 
 module.exports = mongoose.model('WishlistItem', wishlistItemSchema);

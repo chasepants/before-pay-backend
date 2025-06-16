@@ -1,8 +1,15 @@
 const express = require('express');
+const axios = require('axios');
+const dwolla = require('dwolla-v2');
 const router = express.Router();
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const User = require('../models/User');
 const WishlistItem = require('../models/WishlistItem');
+const {
+  Configuration,
+  PlaidApi,
+  PlaidEnvironments,
+  ProcessorTokenCreateRequest,
+} = require('plaid');
 
 const ensureAuthenticated = (req, res, next) => {
   if (req.isAuthenticated()) {
@@ -11,145 +18,137 @@ const ensureAuthenticated = (req, res, next) => {
   res.status(401).json({ error: 'Unauthorized' });
 };
 
-// Create Setup Intent for subscription bank account
-router.post('/setup-intent', ensureAuthenticated, async (req, res) => {
-  const { wishlistItemId } = req.body;
+const dwollaClient = new dwolla.Client({
+  key: process.env.DWOLLA_KEY,
+  secret: process.env.DWOLLA_SECRET,
+  environment: process.env.DWOLLA_ENVIRONMENT
+});
+
+router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
+  const { wishlistItemId, plaidAccessToken, plaidAccountId, amount, frequency, start_date } = req.body;
+
   try {
-    if (!wishlistItemId) {
-      console.error('No wishlistItemId provided');
-      return res.status(400).json({ error: 'Wishlist item ID required' });
+    if (!wishlistItemId || !plaidAccessToken || !amount || !frequency || !start_date) {
+      return res.status(400).json({ error: 'Wishlist item ID, Plaid access token, amount, frequency, and start date required' });
     }
-    console.log('Setup intent requested for user:', req.user._id, 'wishlistItemId:', wishlistItemId);
     const user = await User.findById(req.user._id);
-    if (!user) {
-      console.error('User not found for ID:', req.user._id);
-      return res.status(404).json({ error: 'User not found' });
-    }
     const wishlistItem = await WishlistItem.findById(wishlistItemId);
-    if (!wishlistItem) {
-      console.error('Wishlist item not found:', wishlistItemId);
-      return res.status(404).json({ error: 'Wishlist item not found' });
+    if (!user || !wishlistItem) {
+      return res.status(404).json({ error: 'User or wishlist item not found' });
     }
-    let customerId = wishlistItem.stripeCustomerId;
-    if (!customerId) {
-      const customer = await stripe.customers.create({ email: user.email });
-      customerId = customer.id;
-      wishlistItem.stripeCustomerId = customerId;
-      await wishlistItem.save();
-      console.log('Created new customer:', customerId);
+
+    // Create Dwolla customer if not exists
+    let dwollaCustomerId = user.dwollaCustomerId;
+    if (!dwollaCustomerId) {
+      if (!user.dateOfBirth) {
+        return res.status(400).json({ error: 'Date of birth required for account setup' });
+      }
+      const customerResponse = await dwollaClient.post('customers', {
+        firstName: user.name.split(' ')[0] || 'User',
+        lastName: user.name.split(' ')[1] || 'Name',
+        email: user.email,
+        type: 'personal',
+        address1: user.address?.line1 || '123 Main St',
+        city: user.address?.city || 'San Francisco',
+        // state: user.address?.state || 'CA', todo: user.address.state is not short code. Need to change on complete profile form, 
+        state: "CA",
+        postalCode: user.address?.postal_code || '94105',
+        ssn: user.ssnLast4 || '6789',
+        dateOfBirth: user.dateOfBirth // Add dateOfBirth (YYYY-MM-DD)
+      });
+      dwollaCustomerId = customerResponse.headers.get('location').split('/').pop();
+      user.dwollaCustomerId = dwollaCustomerId;
+      await user.save();
+      console.log('Created Dwolla customer:', dwollaCustomerId);
     }
-    const setupIntent = await stripe.setupIntents.create({
-      payment_method_types: ['us_bank_account'],
-      customer: customerId,
-      usage: 'off_session',
-      metadata: { wishlistItemId }
+
+    // GET PLAID PROCESSOR TOKEN
+    const configuration = new Configuration({
+      basePath: PlaidEnvironments[process.env.PLAID_ENVIRONMENT],
+      baseOptions: {
+        headers: {
+          'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+          'PLAID-SECRET': process.env.PLAID_SECRET,
+          'Plaid-Version': '2020-09-14',
+        },
+      },
     });
-    
-    if (!setupIntent) {
-      console.log('Failed to created setup intent', wishlistItemId);
-      res.status(500).json({ error: 'Could not connect to secure account linking'});
-    }
 
-    wishlistItem.setupIntentId = setupIntent.id;
-    wishlistItem.save();
+    const plaidClient = new PlaidApi(configuration);
 
-    res.json({ client_secret: setupIntent.client_secret });
+     // Exchange the public_token from Plaid Link for an access token.
+    const tokenResponse = await plaidClient.itemPublicTokenExchange({
+      public_token: plaidAccessToken,
+    });
+
+    console.log(tokenResponse)
+
+    const accessToken = tokenResponse.data.access_token;
+    console.log(accessToken)
+    // Create a processor token for a specific account id.
+    const request = {
+      access_token: accessToken,
+      account_id: plaidAccountId,
+      processor: 'dwolla',
+    };
+
+    const processorTokenResponse = await plaidClient.processorTokenCreate(request);
+
+    const processorToken = processorTokenResponse.data.processor_token;
+
+    console.log("processor token", processorToken)
+    // Link bank account as a funding source
+    const fundingSourceResponse = await dwollaClient.post(`customers/${dwollaCustomerId}/funding-sources`, {
+      plaidToken: processorToken,
+      name: 'Savings Account'
+    });
+    console.log("Funding Source response", fundingSourceResponse)
+
+    const fundingSourceId = fundingSourceResponse.headers.get('location').split('/').pop();
+    wishlistItem.fundingSourceId = fundingSourceId;
+    wishlistItem.savingsAmount = parseFloat(amount);
+    wishlistItem.savingsFrequency = frequency;
+    wishlistItem.savingsStartDate = start_date;
+    wishlistItem.bankName = "Chase Bank";
+    wishlistItem.bankAccountName = "My Test Account";
+
+    await wishlistItem.save();
+    console.log('Linked funding source:', fundingSourceId);
+
+    res.json({ success: true });
   } catch (error) {
-    console.error('Setup intent error:', error.message, error.stack);
-    res.status(500).json({ error: error.message || 'Failed to create setup intent' });
+    console.error('Setup savings error:', error.message);
+    res.status(500).json({ error: 'Failed to set up savings plan' });
   }
 });
 
-// Set up subscription
-router.post('/transfer', ensureAuthenticated, async (req, res) => {
-  const { wishlistItemId, payment_method_id, amount, frequency, start_date } = req.body;
+router.get('/transaction-history/:wishlistItemId', ensureAuthenticated, async (req, res) => {
+  const { wishlistItemId } = req.params;
   try {
     if (!wishlistItemId) {
       console.error('No wishlistItemId provided');
       return res.status(400).json({ error: 'Wishlist item ID required' });
     }
-    if (!payment_method_id) {
-      console.error('No payment_method_id provided');
-      return res.status(400).json({ error: 'Payment method ID required' });
-    }
-    if (!amount || !frequency || !start_date) {
-      console.error('Missing required fields:', { amount, frequency, start_date });
-      return res.status(400).json({ error: 'Amount, frequency, and start date are required' });
-    }
-    console.log('Setting up transfer for wishlist item:', wishlistItemId, 'with:', { amount, frequency, start_date });
     const wishlistItem = await WishlistItem.findById(wishlistItemId);
-    if (!wishlistItem) {
-      console.error('Wishlist item not found:', wishlistItemId);
-      return res.status(404).json({ error: 'Wishlist item not found' });
-    }
-    wishlistItem.paymentMethodId = payment_method_id;
-    await wishlistItem.save();
-    console.log('Payment method saved for wishlist item:', wishlistItemId);
-
-    const customerId = wishlistItem.stripeCustomerId;
-    if (!customerId) {
-      console.error('No customer linked for wishlist item:', wishlistItemId);
-      return res.status(400).json({ error: 'No customer linked' });
-    }
-    console.log('Customer ID:', customerId, 'Payment Method ID:', payment_method_id);
-
-    const startTimestamp = Math.floor(new Date(start_date).getTime() / 1000);
-    const nowTimestamp = Math.floor(Date.now() / 1000);
-    if (startTimestamp <= nowTimestamp) {
-      console.error('Start date must be in the future:', start_date);
-      return res.status(400).json({ error: 'Start date must be in the future' });
+    if (!wishlistItem || !wishlistItem.fundingSourceId) {
+      return res.status(404).json({ error: 'Wishlist item or funding source not found' });
     }
 
-    const product = await stripe.products.create({ name: 'Beforepay Savings' });
-    const price = await stripe.prices.create({
-      unit_amount: amount * 100,
-      currency: 'usd',
-      recurring: { interval: frequency === 'month' ? 'month' : 'week', interval_count: frequency === 'biweek' ? 2 : 1 },
-      product: product.id
+    // Fetch transfers for the funding source (both debits and credits)
+    const transfersResponse = await dwollaClient.get(`funding-sources/${wishlistItem.fundingSourceId}/transfers`, {
+      limit: 10
     });
-    const subscription = await stripe.subscriptions.create({
-      customer: customerId,
-      items: [{ price: price.id }],
-      default_payment_method: payment_method_id,
-      billing_cycle_anchor: startTimestamp,
-      proration_behavior: 'none'
-    });
-    wishlistItem.subscriptionId = subscription.id;
-    await wishlistItem.save();
-    console.log('Transfer set up for wishlist item:', wishlistItemId, 'subscription:', subscription.id);
-    res.json({ success: true, subscriptionId: subscription.id });
-  } catch (error) {
-    console.error('Transfer setup error:', error.message, error.stack);
-    res.status(400).json({ error: error.message || 'Failed to set up transfer' });
-  }
-});
-
-// Fetch subscription transaction history
-router.get('/subscription-history/:subscriptionId', async (req, res) => {
-  const { subscriptionId } = req.params;
-  try {
-    if (!subscriptionId) {
-      console.error('No subscriptionId provided');
-      return res.status(400).json({ error: 'Subscription ID required' });
-    }
-    console.log('Fetching transaction history for subscription:', subscriptionId);
-    
-    const invoices = await stripe.invoices.list({
-      subscription: subscriptionId,
-      status: 'paid'
-    });
-
-    const transactions = invoices.data.map(invoice => ({
-      date: invoice.created,
-      amount: invoice.amount_paid,
-      status: invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)
+    const transactions = transfersResponse.body._embedded.transfers.map(transfer => ({
+      date: new Date(transfer.created).getTime() / 1000, // Convert to epoch seconds
+      amount: parseFloat(transfer.amount.value),
+      status: transfer.status.charAt(0).toUpperCase() + transfer.status.slice(1)
     }));
 
     console.log('Transactions retrieved:', transactions);
     res.json({ transactions });
   } catch (error) {
-    console.error('Subscription history error:', error.message, error.stack);
-    res.status(500).json({ error: error.message || 'Failed to fetch transaction history' });
+    console.error('Transaction history error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch transaction history' });
   }
 });
 
@@ -162,88 +161,68 @@ router.post('/payout', ensureAuthenticated, async (req, res) => {
       console.error('Wishlist item not found:', wishlistItemId);
       return res.status(404).json({ error: 'Wishlist item not found' });
     }
-
-    if (!wishlistItem.paymentMethodId) {
-      console.error('No payment method id linked for wishlist item:', wishlistItemId);
-      return res.status(400).json({ error: 'Please set up your payout account via Setup Payout' });
+    if (!wishlistItem.fundingSourceId) {
+      console.error('No funding source linked for wishlist item:', wishlistItemId);
+      return res.status(400).json({ error: 'No bank account linked for payouts' });
     }
     console.log('Wishlist item found:', { savings_progress: wishlistItem.savings_progress, savings_goal: wishlistItem.savings_goal });
-
-    // Retrieve the PaymentMethod using paymentMethodId
-    const paymentMethod = await stripe.paymentMethods.retrieve(wishlistItem.paymentMethodId);
-    console.log('Retrieved PaymentMethod:', {
-      id: paymentMethod.id,
-      type: paymentMethod.type,
-      us_bank_account: paymentMethod.us_bank_account
-    });
-
-    // Find the associated Financial Connections Account
-    if (!paymentMethod.us_bank_account?.financial_connections_account) {
-      console.error('No financial connections account linked for payment method:', wishlistItem.paymentMethodId);
-      return res.status(400).json({ error: 'No financial account linked to this payment method. Please set up a savings plan with a valid bank account.' });
+    if (wishlistItem.savings_progress < wishlistItem.savings_goal) {
+      console.error('Goal not reached for item:', wishlistItemId, 'Progress:', wishlistItem.savings_progress, 'Goal:', wishlistItem.savings_goal);
+      return res.status(400).json({ error: 'Savings goal not reached' });
     }
 
-    const financialAccountId = paymentMethod.us_bank_account.financial_connections_account;
-    console.log('Found Financial Connections Account ID:', financialAccountId);
-    console.log(paymentMethod);
-    // Create a payout to the user's bank account using the financial account ID
-    const payout = await stripe.treasury.outboundPayments.create({
-      amount: wishlistItem.savings_progress * 100,
-      currency: 'usd',
-      financial_account: financialAccountId,
-      customer: wishlistItem.stripeCustomerId,
-      destination_payment_method: wishlistItem.paymentMethodId,
-      description: `Payout for wishlist item ${wishlistItemId}`
+    const user = await User.findById(wishlistItem.userId);
+    if (!user.dwollaCustomerId) {
+      return res.status(400).json({ error: 'User not set up for payouts' });
+    }
+
+    // Initiate ACH credit to pay back the user
+    const transferResponse = await dwollaClient.post('transfers', {
+      _links: {
+        source: { href: `https://api-${process.env.DWOLLA_ENVIRONMENT}.dwolla.com/funding-sources/${process.env.DWOLLA_FUNDING_SOURCE_ID}` },
+        destination: { href: `https://api-${process.env.DWOLLA_ENVIRONMENT}.dwolla.com/funding-sources/${wishlistItem.fundingSourceId}` }
+      },
+      amount: {
+        currency: 'USD',
+        value: wishlistItem.savings_progress.toString()
+      },
+      metadata: {
+        wishlistItemId: wishlistItemId
+      }
     });
 
     wishlistItem.savings_progress = 0;
     await wishlistItem.save();
-    console.log('Payout successful:', payout.id, 'Amount:', wishlistItem.savings_progress * 100);
-    res.json({ success: true, payoutId: payout.id });
+    console.log('Payout successful:', transferResponse.headers.get('location'));
+    res.json({ success: true, transferId: transferResponse.headers.get('location').split('/').pop() });
   } catch (error) {
-    console.error('Payout error:', error.message, error.stack);
-    res.status(500).json({ error: error.message || 'Failed to payout' });
+    console.error('Payout error:', error.message);
+    res.status(500).json({ error: 'Failed to payout' });
   }
 });
 
-// Create Financial Connections session for payout bank account
-router.post('/setup-payout', ensureAuthenticated, async (req, res) => {
-  const { wishlistItemId } = req.body;
+router.post('/plaid-link-token', ensureAuthenticated, async (req, res) => {
   try {
-    if (!wishlistItemId) {
-      console.error('No wishlistItemId provided');
-      return res.status(400).json({ error: 'Wishlist item ID required' });
-    }
-    console.log('Setup payout requested for user:', req.user._id, 'wishlistItemId:', wishlistItemId);
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      console.error('User not found for ID:', req.user._id);
-      return res.status(404).json({ error: 'User not found' });
-    }
-    const wishlistItem = await WishlistItem.findById(wishlistItemId);
-    if (!wishlistItem) {
-      console.error('Wishlist item not found:', wishlistItemId);
-      return res.status(404).json({ error: 'Wishlist item not found' });
-    }
-    if (!wishlistItem.stripeCustomerId) {
-      console.error('No customer linked for wishlist item:', wishlistItemId);
-      return res.status(400).json({ error: 'No customer linked' });
-    }
-    const session = await stripe.financialConnections.sessions.create({
-      account_holder: {
-        type: 'customer',
-        customer: wishlistItem.stripeCustomerId
-      },
-      permissions: ['balances', 'ownership', 'payment_method'],
-      filters: {
-        countries: ['US']
+    const response = await axios.post(
+      `https://${process.env.PLAID_ENVIRONMENT}.plaid.com/link/token/create`,
+      {
+        client_id: process.env.PLAID_CLIENT_ID,
+        secret: process.env.PLAID_SECRET,
+        user: { client_user_id: req.user._id.toString() },
+        client_name: 'Beforepay',
+        products: ['auth'], // For ACH details
+        country_codes: ['US'],
+        language: 'en',
+        webhook: 'https://your-webhook-url', // Optional: Add a webhook for Plaid updates
+        access_token: null // Will be set after initial link
       }
-    });
-    res.json({ client_secret: session.client_secret });
+    );
+    res.json({ link_token: response.data.link_token });
   } catch (error) {
-    console.error('Setup payout error:', error.message, error.stack);
-    res.status(500).json({ error: error.message || 'Failed to create payout setup session' });
+    console.error('Plaid link token error:', error.message);
+    res.status(500).json({ error: 'Failed to create Plaid link token' });
   }
 });
+
 
 module.exports = router;
