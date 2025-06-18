@@ -2,6 +2,15 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
+const transferSchema = new Schema({
+  transferId: { type: String, required: true }, // Dwolla transfer ID
+  amount: { type: Number, required: true },    // Amount in dollars
+  date: { type: Date, required: true },       // Transfer creation date
+  status: { type: String, required: true },   // e.g., "pending", "completed", "failed"
+  type: { type: String, required: true },     // "debit" or "credit"
+  metadata: { type: Object }                  // Additional metadata (e.g., wishlistItemId)
+});
+
 const wishlistItemSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   title: { type: String, required: true },
@@ -30,7 +39,9 @@ const wishlistItemSchema = new Schema({
   savingsFrequency: String,
   savingsStartDate: String,
   bankName: String,
-  bankAccountName: String
+  bankAccountName: String,
+  nextRunnable: { type: Date, default: null }, // Add this field
+  transfers: [transferSchema] // Add transfers array
 });
 
 module.exports = mongoose.model('WishlistItem', wishlistItemSchema);

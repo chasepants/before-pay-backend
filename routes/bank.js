@@ -111,6 +111,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
     wishlistItem.savingsStartDate = start_date;
     wishlistItem.bankName = "Chase Bank";
     wishlistItem.bankAccountName = "My Test Account";
+    wishlistItem.nextRunnable = new Date(start_date);
 
     await wishlistItem.save();
     console.log('Linked funding source:', fundingSourceId);
@@ -122,6 +123,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
   }
 });
 
+// backend/routes/bank.js (partial update)
 router.get('/transaction-history/:wishlistItemId', ensureAuthenticated, async (req, res) => {
   const { wishlistItemId } = req.params;
   try {
@@ -129,20 +131,46 @@ router.get('/transaction-history/:wishlistItemId', ensureAuthenticated, async (r
       console.error('No wishlistItemId provided');
       return res.status(400).json({ error: 'Wishlist item ID required' });
     }
-    const wishlistItem = await WishlistItem.findById(wishlistItemId);
+    const wishlistItem = await WishlistItem.findById(wishlistItemId).populate('userId');
     if (!wishlistItem || !wishlistItem.fundingSourceId) {
       return res.status(404).json({ error: 'Wishlist item or funding source not found' });
     }
 
-    // Fetch transfers for the funding source (both debits and credits)
-    const transfersResponse = await dwollaClient.get(`funding-sources/${wishlistItem.fundingSourceId}/transfers`, {
-      limit: 10
-    });
-    const transactions = transfersResponse.body._embedded.transfers.map(transfer => ({
-      date: new Date(transfer.created).getTime() / 1000, // Convert to epoch seconds
-      amount: parseFloat(transfer.amount.value),
-      status: transfer.status.charAt(0).toUpperCase() + transfer.status.slice(1)
+    console.log(wishlistItem);
+
+    // Use local transfers array as primary source
+    let transactions = wishlistItem.transfers.map(transfer => ({
+      date: transfer.date.getTime() / 1000,
+      amount: transfer.amount,
+      status: transfer.status,
+      type: transfer.type
     }));
+
+    // Optionally fetch updates from Dwolla API
+    // const transfersResponse = await dwollaClient.get(`funding-sources/${wishlistItem.fundingSourceId}/transfers`, {
+    //   limit: 10
+    // });
+    // const dwollaTransactions = transfersResponse.body._embedded.transfers.map(transfer => ({
+    //   date: new Date(transfer.created).getTime() / 1000,
+    //   amount: parseFloat(transfer.amount.value),
+    //   status: transfer.status.charAt(0).toUpperCase() + transfer.status.slice(1),
+    //   type: transfer._links.source.href.includes(wishlistItem.fundingSourceId) ? 'Debit' : 'Credit'
+    // }));
+
+    // Merge and deduplicate (update local status if different)
+    // const transferMap = new Map();
+    // transactions.forEach(t => transferMap.set(t.date, t));
+    // dwollaTransactions.forEach(t => {
+    //   const existing = transferMap.get(t.date);
+    //   if (existing) {
+    //     if (existing.status !== t.status) {
+    //       existing.status = t.status;
+    //     }
+    //   } else {
+    //     transferMap.set(t.date, t);
+    //   }
+    // });
+    // transactions = Array.from(transferMap.values()).sort((a, b) => b.date - a.date);
 
     console.log('Transactions retrieved:', transactions);
     res.json({ transactions });
@@ -157,19 +185,18 @@ router.post('/payout', ensureAuthenticated, async (req, res) => {
   try {
     console.log('Requesting payout for wishlist item:', wishlistItemId);
     const wishlistItem = await WishlistItem.findById(wishlistItemId);
+
     if (!wishlistItem) {
       console.error('Wishlist item not found:', wishlistItemId);
       return res.status(404).json({ error: 'Wishlist item not found' });
     }
+
     if (!wishlistItem.fundingSourceId) {
       console.error('No funding source linked for wishlist item:', wishlistItemId);
       return res.status(400).json({ error: 'No bank account linked for payouts' });
     }
+
     console.log('Wishlist item found:', { savings_progress: wishlistItem.savings_progress, savings_goal: wishlistItem.savings_goal });
-    if (wishlistItem.savings_progress < wishlistItem.savings_goal) {
-      console.error('Goal not reached for item:', wishlistItemId, 'Progress:', wishlistItem.savings_progress, 'Goal:', wishlistItem.savings_goal);
-      return res.status(400).json({ error: 'Savings goal not reached' });
-    }
 
     const user = await User.findById(wishlistItem.userId);
     if (!user.dwollaCustomerId) {
@@ -191,8 +218,18 @@ router.post('/payout', ensureAuthenticated, async (req, res) => {
       }
     });
 
-    wishlistItem.savings_progress = 0;
+    const transferId = transferResponse.headers.get('location').split('/').pop();
+    const transferDate = new Date();
+    wishlistItem.transfers.push({
+      transferId,
+      amount: wishlistItem.savings_progress * -1,
+      date: transferDate,
+      status: 'pending',
+      type: 'debit'
+    });
+    wishlistItem.savings_progress = 0
     await wishlistItem.save();
+
     console.log('Payout successful:', transferResponse.headers.get('location'));
     res.json({ success: true, transferId: transferResponse.headers.get('location').split('/').pop() });
   } catch (error) {
@@ -224,5 +261,33 @@ router.post('/plaid-link-token', ensureAuthenticated, async (req, res) => {
   }
 });
 
+router.get('/existing-funding-sources', ensureAuthenticated, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user || !user.dwollaCustomerId) {
+      return res.status(404).json({ error: 'User not found or not set up' });
+    }
+
+    // Fetch all WishlistItems for the user
+    const wishlistItems = await WishlistItem.find({ userId: user._id, fundingSourceId: { $exists: true } });
+    const fundingSourceIds = [...new Set(wishlistItems.map(item => item.fundingSourceId))]; // Unique funding sources
+
+    const fundingSources = [];
+    for (const fundingSourceId of fundingSourceIds) {
+      const response = await dwollaClient.get(`funding-sources/${fundingSourceId}`);
+      const data = response.body;
+      fundingSources.push({
+        id: fundingSourceId,
+        name: data.name || 'Linked Account',
+        mask: data.bankAccount ? data.bankAccount.mask : '****'
+      });
+    }
+
+    res.json({ fundingSources });
+  } catch (error) {
+    console.error('Error fetching existing funding sources:', error.message);
+    res.status(500).json({ error: 'Failed to fetch existing funding sources' });
+  }
+});
 
 module.exports = router;
