@@ -24,12 +24,13 @@ const dwollaClient = new dwolla.Client({
   environment: process.env.DWOLLA_ENVIRONMENT
 });
 
+// backend/routes/bank.js (partial update)
 router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
   const { wishlistItemId, plaidAccessToken, plaidAccountId, amount, frequency, start_date } = req.body;
-
+  console.log('Request body:', req.body);
   try {
-    if (!wishlistItemId || !plaidAccessToken || !amount || !frequency || !start_date) {
-      return res.status(400).json({ error: 'Wishlist item ID, Plaid access token, amount, frequency, and start date required' });
+    if (!wishlistItemId || !plaidAccountId || !amount || !frequency || !start_date) {
+      return res.status(400).json({ error: 'Wishlist item ID, account ID, amount, frequency, and start date required' });
     }
     const user = await User.findById(req.user._id);
     const wishlistItem = await WishlistItem.findById(wishlistItemId);
@@ -37,74 +38,89 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
       return res.status(404).json({ error: 'User or wishlist item not found' });
     }
 
-    // Create Dwolla customer if not exists
-    let dwollaCustomerId = user.dwollaCustomerId;
-    if (!dwollaCustomerId) {
-      if (!user.dateOfBirth) {
-        return res.status(400).json({ error: 'Date of birth required for account setup' });
+    // Check if the plaidAccountId matches an existing fundingSourceId
+    let fundingSourceId = plaidAccountId;
+    let isNewAccount = !!plaidAccessToken; // True if a new Plaid token is provided
+
+    if (isNewAccount) {
+      // Create Dwolla customer if not exists
+      let dwollaCustomerId = user.dwollaCustomerId;
+      if (!dwollaCustomerId) {
+        if (!user.dateOfBirth) {
+          return res.status(400).json({ error: 'Date of birth required for account setup' });
+        }
+        const stateCode = user.address?.state || 'CA';
+        const customerResponse = await dwollaClient.post('customers', {
+          firstName: user.name.split(' ')[0] || 'User',
+          lastName: user.name.split(' ')[1] || 'Name',
+          email: user.email,
+          type: 'personal',
+          address1: user.address?.line1 || '123 Main St',
+          city: user.address?.city || 'San Francisco',
+          state: stateCode,
+          postalCode: user.address?.postal_code || '94105',
+          ssn: user.ssnLast4 || '6789',
+          dateOfBirth: user.dateOfBirth
+        });
+        dwollaCustomerId = customerResponse.headers.get('location').split('/').pop();
+        user.dwollaCustomerId = dwollaCustomerId;
+        await user.save();
+        console.log('Created Dwolla customer:', dwollaCustomerId);
       }
-      const customerResponse = await dwollaClient.post('customers', {
-        firstName: user.name.split(' ')[0] || 'User',
-        lastName: user.name.split(' ')[1] || 'Name',
-        email: user.email,
-        type: 'personal',
-        address1: user.address?.line1 || '123 Main St',
-        city: user.address?.city || 'San Francisco',
-        // state: user.address?.state || 'CA', todo: user.address.state is not short code. Need to change on complete profile form, 
-        state: "CA",
-        postalCode: user.address?.postal_code || '94105',
-        ssn: user.ssnLast4 || '6789',
-        dateOfBirth: user.dateOfBirth // Add dateOfBirth (YYYY-MM-DD)
+
+      // GET PLAID PROCESSOR TOKEN
+      const configuration = new Configuration({
+        basePath: PlaidEnvironments[process.env.PLAID_ENVIRONMENT],
+        baseOptions: {
+          headers: {
+            'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+            'PLAID-SECRET': process.env.PLAID_SECRET,
+            'Plaid-Version': '2020-09-14',
+          },
+        },
       });
-      dwollaCustomerId = customerResponse.headers.get('location').split('/').pop();
-      user.dwollaCustomerId = dwollaCustomerId;
-      await user.save();
-      console.log('Created Dwolla customer:', dwollaCustomerId);
+
+      const plaidClient = new PlaidApi(configuration);
+
+      // Exchange the public_token from Plaid Link for an access token
+      const tokenResponse = await plaidClient.itemPublicTokenExchange({
+        public_token: plaidAccessToken,
+      });
+      console.log('Plaid token exchange response:', tokenResponse.data);
+
+      const accessToken = tokenResponse.data.access_token;
+      console.log('Plaid access token:', accessToken);
+
+      // Create a processor token for a specific account id
+      const request = {
+        access_token: accessToken,
+        account_id: plaidAccountId,
+        processor: 'dwolla',
+      };
+
+      const processorTokenResponse = await plaidClient.processorTokenCreate(request);
+      console.log('Plaid processor token response:', processorTokenResponse.data);
+
+      const processorToken = processorTokenResponse.data.processor_token;
+      console.log('Plaid processor token:', processorToken);
+
+      // Link bank account as a funding source
+      const fundingSourceResponse = await dwollaClient.post(`customers/${dwollaCustomerId}/funding-sources`, {
+        plaidToken: processorToken,
+        name: 'Savings Account'
+      });
+      console.log('Dwolla funding source response:', fundingSourceResponse.body);
+
+      fundingSourceId = fundingSourceResponse.headers.get('location').split('/').pop();
+    } else {
+      console.log('Reusing existing funding source:', fundingSourceId);
+      // Verify the funding source exists (optional, for safety)
+      const fundingSourceResponse = await dwollaClient.get(`funding-sources/${fundingSourceId}`);
+      if (!fundingSourceResponse.body) {
+        throw new Error('Existing funding source not found');
+      }
     }
 
-    // GET PLAID PROCESSOR TOKEN
-    const configuration = new Configuration({
-      basePath: PlaidEnvironments[process.env.PLAID_ENVIRONMENT],
-      baseOptions: {
-        headers: {
-          'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-          'PLAID-SECRET': process.env.PLAID_SECRET,
-          'Plaid-Version': '2020-09-14',
-        },
-      },
-    });
-
-    const plaidClient = new PlaidApi(configuration);
-
-     // Exchange the public_token from Plaid Link for an access token.
-    const tokenResponse = await plaidClient.itemPublicTokenExchange({
-      public_token: plaidAccessToken,
-    });
-
-    console.log(tokenResponse)
-
-    const accessToken = tokenResponse.data.access_token;
-    console.log(accessToken)
-    // Create a processor token for a specific account id.
-    const request = {
-      access_token: accessToken,
-      account_id: plaidAccountId,
-      processor: 'dwolla',
-    };
-
-    const processorTokenResponse = await plaidClient.processorTokenCreate(request);
-
-    const processorToken = processorTokenResponse.data.processor_token;
-
-    console.log("processor token", processorToken)
-    // Link bank account as a funding source
-    const fundingSourceResponse = await dwollaClient.post(`customers/${dwollaCustomerId}/funding-sources`, {
-      plaidToken: processorToken,
-      name: 'Savings Account'
-    });
-    console.log("Funding Source response", fundingSourceResponse)
-
-    const fundingSourceId = fundingSourceResponse.headers.get('location').split('/').pop();
     wishlistItem.fundingSourceId = fundingSourceId;
     wishlistItem.savingsAmount = parseFloat(amount);
     wishlistItem.savingsFrequency = frequency;
@@ -118,8 +134,8 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
 
     res.json({ success: true });
   } catch (error) {
-    console.error('Setup savings error:', error.message);
-    res.status(500).json({ error: 'Failed to set up savings plan' });
+    console.error('Setup savings error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
   }
 });
 
@@ -287,6 +303,30 @@ router.get('/existing-funding-sources', ensureAuthenticated, async (req, res) =>
   } catch (error) {
     console.error('Error fetching existing funding sources:', error.message);
     res.status(500).json({ error: 'Failed to fetch existing funding sources' });
+  }
+});
+
+// backend/routes/bank.js (add this endpoint)
+router.get('/funding-sources/:dwollaCustomerId', ensureAuthenticated, async (req, res) => {
+  try {
+    const { dwollaCustomerId } = req.params;
+    if (!dwollaCustomerId) {
+      return res.status(400).json({ error: 'Dwolla Customer ID required' });
+    }
+
+    // Fetch funding sources for the customer
+    const response = await dwollaClient.get(`customers/${dwollaCustomerId}/funding-sources`);
+    const fundingSources = response.body._embedded['funding-sources'].map(source => ({
+      id: source.id,
+      name: source.name || 'Unnamed Account',
+      mask: source.bankAccount ? source.bankAccount.mask : '****',
+      bankName: source.bankAccount ? source.bankAccount.bankName : 'Unknown'
+    }));
+
+    res.json({ fundingSources });
+  } catch (error) {
+    console.error('Error fetching funding sources:', error.message);
+    res.status(500).json({ error: 'Failed to fetch funding sources' });
   }
 });
 
