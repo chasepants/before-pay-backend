@@ -219,38 +219,89 @@ router.post('/payout', ensureAuthenticated, async (req, res) => {
       return res.status(400).json({ error: 'User not set up for payouts' });
     }
 
-    // Initiate ACH credit to pay back the user
-    const transferResponse = await dwollaClient.post('transfers', {
-      _links: {
-        source: { href: `https://api-${process.env.DWOLLA_ENVIRONMENT}.dwolla.com/funding-sources/${process.env.DWOLLA_FUNDING_SOURCE_ID}` },
-        destination: { href: `https://api-${process.env.DWOLLA_ENVIRONMENT}.dwolla.com/funding-sources/${wishlistItem.fundingSourceId}` }
-      },
-      amount: {
-        currency: 'USD',
-        value: wishlistItem.savings_progress.toString()
-      },
-      metadata: {
-        wishlistItemId: wishlistItemId
-      }
-    });
+    // Analyze transfers for payout
+    const pendingDebits = wishlistItem.transfers.filter(t => t.type === 'debit' && t.status === 'pending');
+    const completedDebits = wishlistItem.transfers.filter(t => t.type === 'debit' && t.status === 'completed');
+    const refundAmount = completedDebits.reduce((sum, t) => sum + t.amount, 0);
+    let canceledAmount = 0;
 
-    const transferId = transferResponse.headers.get('location').split('/').pop();
-    const transferDate = new Date();
-    wishlistItem.transfers.push({
-      transferId,
-      amount: wishlistItem.savings_progress * -1,
-      date: transferDate,
-      status: 'pending',
-      type: 'debit'
-    });
-    wishlistItem.savings_progress = 0
+    // Cancel pending debit transfers
+    let cancellationErrors = [];
+    for (const transfer of pendingDebits) {
+      try {
+        await dwollaClient.post(`transfers/${transfer.transferId}`, { status: 'cancelled' });
+        console.log(`Cancelled pending transfer ${transfer.transferId} for payout of item ${wishlistItemId}`);
+        transfer.status = 'cancelled';
+        canceledAmount += transfer.amount;
+      } catch (error) {
+        console.error(`Failed to cancel transfer ${transfer.transferId}:`, error.message);
+        cancellationErrors.push(error.message);
+        canceledAmount -= transfer.amount;
+      }
+    }
+
+    wishlistItem.markModified('transfers');
     await wishlistItem.save();
 
-    console.log('Payout successful:', transferResponse.headers.get('location'));
-    res.json({ success: true, transferId: transferResponse.headers.get('location').split('/').pop() });
+    if (refundAmount > 0) {
+      console.log('Initiating payout of $' + refundAmount + ' for item:', wishlistItemId);
+      const transferResponse = await dwollaClient.post('transfers', {
+        _links: {
+          source: { href: `https://api-${process.env.DWOLLA_ENVIRONMENT}.dwolla.com/funding-sources/${process.env.DWOLLA_FUNDING_SOURCE_ID}` },
+          destination: { href: `https://api-${process.env.DWOLLA_ENVIRONMENT}.dwolla.com/funding-sources/${wishlistItem.fundingSourceId}` }
+        },
+        amount: {
+          currency: 'USD',
+          value: refundAmount.toString()
+        },
+        clearing: {
+          source: 'next-available'
+        },
+        metadata: {
+          wishlistItemId: wishlistItemId,
+          type: 'payout'
+        }
+      });
+
+      const transferId = transferResponse.headers.get('location').split('/').pop();
+      const transferDate = new Date();
+      wishlistItem.transfers.push({
+        transferId,
+        amount: refundAmount * -1,
+        date: transferDate,
+        status: 'pending',
+        type: 'credit'
+      });
+
+      // Update completed debits to 'refunded' status
+      completedDebits.forEach(transfer => {
+        transfer.status = 'refunded';
+      });
+
+      // Adjust savings_progress
+      wishlistItem.savings_progress -= (refundAmount + canceledAmount);
+      await wishlistItem.save();
+
+      console.log('Payout successful:', transferResponse.headers.get('location'));
+      res.json({ success: true, transferId });
+    } else {
+      console.log('No completed debits to payout for item:', wishlistItemId);
+      // Adjust savings_progress for canceled amounts only
+      wishlistItem.savings_progress -= canceledAmount;
+      await wishlistItem.save();
+      res.json({ success: true, transferId: null });
+    }
+
+    if (cancellationErrors.some(error => error)) {
+      console.warn('Some pending transfers failed to cancel:', cancellationErrors);
+      res.json({ success: true, transferId: refundAmount > 0 ? transferId : null, warning: 'Some pending transfers could not be canceled' });
+    }
   } catch (error) {
-    console.error('Payout error:', error.message);
-    res.status(500).json({ error: 'Failed to payout' });
+    console.error('Payout error:', error.message, error.stack);
+    if (error.message.includes('NotFound')) {
+      return res.status(404).json({ error: 'Funding source not found for payout' });
+    }
+    res.status(500).json({ error: 'Failed to payout: ' + error.message });
   }
 });
 
