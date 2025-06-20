@@ -4,52 +4,73 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const passport = require('passport');
 const cors = require('cors');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 require('dotenv').config();
 require('./config/passport');
-
+const WishlistItem = require('./models/WishlistItem');
 const authRoutes = require('./routes/auth');
 const wishlistRoutes = require('./routes/wishlist');
 const bankRoutes = require('./routes/bank');
-const User = require('./models/User');
-const WishlistItem = require('./models/WishlistItem');
 
 const app = express();
 
-app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  console.log('Webhook');
-  const sig = req.headers['stripe-signature'];
+app.use(express.json());
+app.use(express.raw({ type: 'application/json' }));
+
+app.post('/webhook', async (req, res) => {
+  console.log('Received webhook raw body:', req.body); // Log raw body for debugging
   let event;
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    console.log('Webhook event received:', event.type, 'ID:', event.id);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; // Parse if string, use directly if object
+  } catch (parseError) {
+    console.error('Failed to parse webhook body:', parseError.message);
+    return res.status(400).json({ error: 'Invalid webhook payload' });
+  }
+  console.log('Parsed webhook event:', event);
+
+  if (!(event.topic === 'transfer_completed' || event.topic === 'transfer_failed')) {
+    console.log('Unhandled webhook event', event.topic);
+    return res.status(200).json({ received: true })
   }
 
-  if (event.type === 'invoice.payment_succeeded') {
-    const subscriptionId = event.data.object.subscription;
-    const amount = event.data.object.amount_paid / 100;
-    console.log('Processing invoice.payment_succeeded:', { subscriptionId, amount, invoiceId: event.data.object.id });
-    try {
-      const wishlistItem = await WishlistItem.findOne({ subscriptionId });
-      if (wishlistItem) {
-        wishlistItem.savings_progress += amount;
-        const user = await User.findById(wishlistItem.userId);
-        user.totalSavings += amount;
-        await wishlistItem.save();
-        await user.save();
-        console.log('Savings updated for wishlist item:', wishlistItem._id, 'New progress:', wishlistItem.savings_progress);
-      } else {
-        console.log('No wishlist item found for subscription:', subscriptionId);
-      }
-    } catch (error) {
-      console.error('Error updating savings:', error.message, error.stack);
-    }
-  } else {
-    console.log('Unhandled webhook event:', event.type);
+  const wishlistItemId = event._embedded?.transfer?.metadata?.wishlistItemId;
+  
+  if (!wishlistItemId) {
+    console.warn('No wishlistItemId in webhook metadata');
+    return res.status(200).json({ received: true })
   }
+  
+  const wishlistItem = await WishlistItem.findOne({ _id: wishlistItemId });
+  
+  if (!wishlistItem) {
+    console.warn(`Wishlist item ${wishlistItemId} not found for webhook`);
+    return res.status(200).json({ received: true })
+  }
+
+  const transferId = event._embedded.transfer.id;
+
+  if (!transferId) {
+    console.warn('No transferId in webhook metadata');
+    return res.status(200).json({ received: true })
+  }
+  
+  const transfer = wishlistItem.transfers.find(t => t.transferId === transferId);
+
+  if (!transfer) {
+    console.warn(`Transfer ${transferId} not found in wishlist item ${wishlistItemId}`);
+    return res.status(200).json({ received: true })
+  }
+
+  const newStatus = event._embedded.transfer.status;
+  transfer.status = newStatus;
+
+  if (event.topic === 'transfer_failed' && transfer.type === 'debit') {
+    wishlistItem.savings_progress -= transfer.amount; // Decrement on failure
+  } else if (event.topic === 'transfer_failed' && transfer.type === 'credit') {
+    wishlistItem.savings_progress = transfer.amount; // Replace savings amount
+  }
+
+  await wishlistItem.save();
+  console.log(`Updated transfer ${transferId} status to ${newStatus} for ${wishlistItemId}, savings_progress: ${wishlistItem.savings_progress}`);
 
   res.json({ received: true });
 });
@@ -58,10 +79,9 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 app.use(cors({ 
   origin: 'http://localhost:3000',
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
+  methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.use(express.json());
 app.use(session({
   secret: process.env.SESSION_SECRET || 'beforepay-secret',
   resave: false,
@@ -82,70 +102,3 @@ mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopol
   .catch(err => console.error(err));
 
 module.exports = app;
-
-
-// // Webhook endpoint (no auth, raw body)
-// app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-//   console.log('Webhook');
-//   const sig = req.headers['stripe-signature'];
-//   let event;
-//   try {
-//     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-//     console.log('Webhook event received:', event.type, 'ID:', event.id);
-//   } catch (err) {
-//     console.error('Webhook signature verification failed:', err.message);
-//     return res.status(400).send(`Webhook Error: ${err.message}`);
-//   }
-
-//   if (event.type === 'invoice.payment_succeeded') {
-//     const subscriptionId = event.data.object.subscription;
-//     const amount = event.data.object.amount_paid / 100;
-//     console.log('Processing invoice.payment_succeeded:', { subscriptionId, amount, invoiceId: event.data.object.id });
-//     try {
-//       const wishlistItem = await WishlistItem.findOne({ subscriptionId });
-//       if (wishlistItem) {
-//         wishlistItem.savings_progress += amount;
-//         const user = await User.findById(wishlistItem.userId);
-//         user.totalSavings += amount;
-//         await wishlistItem.save();
-//         await user.save();
-//         console.log('Savings updated for wishlist item:', wishlistItem._id, 'New progress:', wishlistItem.savings_progress);
-//       } else {
-//         console.log('No wishlist item found for subscription:', subscriptionId);
-//       }
-//     } catch (error) {
-//       console.error('Error updating savings:', error.message, error.stack);
-//     }
-//   } else if (event.type === 'financial_connections.account.created') {
-//     const account = event.data.object;
-//     console.log('Processing financial_connections.account.created:', {
-//       accountId: account.id,
-//       customer: account.account_holder?.customer,
-//       last4: account.last4,
-//       institution: account.institution_name
-//     });
-//     if (!account.account_holder?.customer) {
-//       console.error('No customer ID in account_holder:', account);
-//       return res.json({ received: true, error: 'No customer ID provided' });
-//     }
-//     const wishlistItem = await WishlistItem.findOne({ stripeCustomerId: account.account_holder.customer });
-//     if (wishlistItem) {
-//       // Processing financial_connections.account.created: {
-//     //   accountId: 'fca_1RVuczHGylTIBPReBXu9PhX2',
-//     //   customer: 'cus_SQP9hUquLnApEr',
-//     //   last4: '6789',
-//     //   institution: 'StripeBank'
-//     // }
-//       wishlistItem.payoutBankAccountId = account.id;
-//       await wishlistItem.save();
-//       console.log('Payout bank account linked for wishlist item:', wishlistItem._id, 'Account ID:', account.id);
-//     } else {
-//       console.error('No wishlist item found for customer:', account.account_holder.customer);
-//       return res.json({ received: true, error: 'No wishlist item found for customer' });
-//     }
-//   } else {
-//     console.log('Unhandled webhook event:', event.type);
-//   }
-
-//   res.json({ received: true });
-// });
