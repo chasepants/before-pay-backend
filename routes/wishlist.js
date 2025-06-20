@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const WishlistItem = require('../models/WishlistItem');
+const User = require('../models/User');
 const dwolla = require('dwolla-v2'); // Ensure dwolla-v2 is installed
 require('dotenv').config();
 
