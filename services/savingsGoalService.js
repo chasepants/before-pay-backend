@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const WishlistItem = require('../models/WishlistItem');
 const User = require('../models/User');
 
-const wishlistItemService = {
+const savingsGoalService = {
   findByDate: async (targetDate) => {
     return await WishlistItem.find({
       nextRunnable: { $lte: targetDate },
@@ -20,4 +20,4 @@ const wishlistItemService = {
   }
 };
 
-module.exports = wishlistItemService;
+module.exports = savingsGoalService;

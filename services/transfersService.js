@@ -1,20 +1,20 @@
 // backend/services/transfersService.js
-const processTransfersForDate = async (targetDate, wishlistItemService, dwollaService) => {
+const processTransfersForDate = async (targetDate, savingsGoalService, unitService) => {
   // Find wishlist items ready for transfer
-  const wishlistItems = await wishlistItemService.findByDate(targetDate);
+  const wishlistItems = await savingsGoalService.findByDate(targetDate);
 
   if (wishlistItems.length === 0) {
     return; // No logging needed per updated test
   }
 
   for (const item of wishlistItems) {
-    const user = await wishlistItemService.findUserById(item.userId);
+    const user = await savingsGoalService.findUserById(item.userId);
     if (!user || !user.dwollaCustomerId) {
       continue; // No logging needed per updated test
     }
 
     try {
-      const transferResponse = await dwollaService.initiateTransfer(
+      const transferResponse = await unitService.initiateTransfer(
         `https://api-${process.env.DWOLLA_ENVIRONMENT}.dwolla.com/funding-sources/${item.fundingSourceId}`,
         `https://api-${process.env.DWOLLA_ENVIRONMENT}.dwolla.com/funding-sources/${process.env.DWOLLA_FUNDING_SOURCE_ID}`,
         item.savingsAmount,
@@ -37,7 +37,7 @@ const processTransfersForDate = async (targetDate, wishlistItemService, dwollaSe
         type: 'debit'
       });
 
-      await wishlistItemService.save(item);
+      await savingsGoalService.save(item);
     } catch (error) {
       continue; // No logging needed per updated test
     }
