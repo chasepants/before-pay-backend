@@ -1,5 +1,15 @@
 // backend/models/SavingsGoal.js
 const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
+
+const transferSchema = new Schema({
+  transferId: { type: String, required: true }, // Dwolla transfer ID
+  amount: { type: Number, required: true },    // Amount in dollars
+  date: { type: Date, required: true },       // Transfer creation date
+  status: { type: String, required: true },   // e.g., "pending", "completed", "failed"
+  type: { type: String, required: true },     // "debit" or "credit"
+  metadata: { type: Object }                  // Additional metadata (e.g., wishlistItemId)
+});
 
 const savingsGoalSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -22,7 +32,17 @@ const savingsGoalSchema = new mongoose.Schema({
   reviews: { type: Number },
   badge: { type: String },
   tag: { type: String },
-  delivery: { type: String }
+  delivery: { type: String },
+  savingsAmount: Number,
+  savingsFrequency: String,
+  savingsStartDate: String,
+  bankName: String,
+  bankAccountName: String,
+  bankLastFour: String,
+  bankAccountType: String,
+  externalAccountId: String,
+  nextRunnable: { type: Date, default: null },
+  transfers: [transferSchema]
 });
 
 module.exports = mongoose.model('SavingsGoal', savingsGoalSchema);

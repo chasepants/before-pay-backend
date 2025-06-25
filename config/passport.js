@@ -15,8 +15,6 @@ async (accessToken, refreshToken, profile, done) => {
       user = new User({
         email: profile.emails[0].value,
         googleId: profile.id, // Set Google sub as googleId
-        firstName: profile.name.givenName,
-        lastName: profile.name.familyName,
         status: 'pending'
       });
       await user.save();
@@ -32,7 +30,25 @@ async (accessToken, refreshToken, profile, done) => {
 }));
 
 passport.serializeUser((user, done) => {
-  done(null, user._id);
+  done(null, {
+    _id: user._id,
+    email: user.email,
+    googleId: user.googleId,
+    unitAccountId: user.unitAccountId,
+    status: user.status,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    unitCustomerId: user.unitCustomerId,
+    unitApplicationId: user.unitApplicationId,
+    address: user.address,
+    ssnLast4: user.ssnLast4,
+    dateOfBirth: user.dateOfBirth,
+    plaidAccessToken: user.plaidAccessToken,
+    phone: user.phone,
+    sourceOfIncome: user.sourceOfIncome,
+    annualIncome: user.annualIncome,
+    occupation: user.occupation
+  });
 });
 
 passport.deserializeUser(async (id, done) => {

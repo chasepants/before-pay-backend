@@ -52,15 +52,11 @@ router.post('/', ensureAuthenticated, async (req, res) => {
       delivery
     } = req.body;
 
-    if (!goalName || !targetAmount) {
-      return res.status(400).json({ error: 'Goal name and target amount are required' });
-    }
-
     const goal = new SavingsGoal({
       userId: req.user._id,
-      goalName,
+      goalName: goalName || title,
       description,
-      targetAmount: parseFloat(targetAmount),
+      targetAmount: targetAmount? parseFloat(targetAmount) : price,
       currentAmount: 0,
       productLink,
       title,

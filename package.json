@@ -18,6 +18,7 @@
     "dwolla-v2": "^3.4.0",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
+    "multer": "^2.0.1",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "plaid": "^35.0.0"
