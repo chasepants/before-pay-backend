@@ -106,6 +106,8 @@ app.post('/webhook', async (req, res) => {
         await user.save();
         console.log(`User ${user.email} application pending review`);
       }
+    } else if (eventData.type === 'document.approved') {
+      console.log('document approved', eventData);
     } else if (eventData.type === 'recurringPayment.updated' || eventData.type === 'payment.cleared') {
       const paymentId = eventData.relationships?.payment?.data?.id || eventData.relationships?.recurringPayment?.data?.id;
       if (paymentId) {

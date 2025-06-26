@@ -53,19 +53,21 @@ router.get('/counterparties/:userId', ensureAuthenticated, async (req, res) => {
   }
 });
 
+// backend/routes/bank.js (partial update)
 router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
-  const { savingsGoalId, plaidAccessToken, plaidAccountId, amount, frequency, start_date } = req.body;
+  const { savingsGoalId, plaidAccessToken, plaidAccountId, amount, schedule } = req.body;
   console.log('Request body:', req.body);
   try {
-    if (!savingsGoalId || !plaidAccountId || !amount || !frequency || !start_date) {
-      return res.status(400).json({ error: 'savingsGoalId, plaidAccountId, amount, frequency, and start_date are required' });
+    // Validate required fields
+    if (!savingsGoalId || !plaidAccountId || !amount || !schedule) {
+      return res.status(400).json({ error: 'savingsGoalId, plaidAccountId, amount, and schedule are required' });
     }
 
     const savingsGoal = await SavingsGoal.findById(savingsGoalId);
-    console.log(savingsGoal.userId.toString())
-    console.log(req.user._id)
-    console.log(savingsGoal)
-    if (!savingsGoal || savingsGoal.userId != req.user._id.toString()) {
+    console.log('SavingsGoal userId:', savingsGoal.userId.toString());
+    console.log('Request userId:', req.user._id);
+    console.log('SavingsGoal:', savingsGoal);
+    if (!savingsGoal || savingsGoal.userId.toString() !== req.user._id.toString()) {
       return res.status(404).json({ error: 'Savings goal not found or unauthorized' });
     }
 
@@ -106,23 +108,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
 
       const processorToken = processorTokenResponse.data.processor_token;
       console.log('Plaid processor token:', processorToken);
-      console.log({
-        type: 'achCounterparty',
-        attributes: {
-          name: `${req.user.firstName} ${req.user.lastName}`,
-          plaidProcessorToken: processorToken,
-          type: 'Person',
-          permissions: 'DebitOnly'
-        },
-        relationships: {
-          customer: {
-            data: {
-              type: 'customer',
-              id: req.user.unitCustomerId
-            }
-          } 
-        }
-      })
+
       counterparty = await unit.counterparties.create({
         type: 'achCounterparty',
         attributes: {
@@ -137,41 +123,65 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
               type: 'customer',
               id: req.user.unitCustomerId
             }
-          } 
+          }
         }
       });
       console.log(`Counterparty created:`, counterparty.data.id);
     } else {
       // Use existing account (plaidAccountId is assumed to be the counterparty ID for existing accounts)
-      console.log(`Searching for counterparty using id ${plaidAccountId}`)
+      console.log(`Searching for counterparty using id ${plaidAccountId}`);
       counterparty = await unit.counterparties.get(plaidAccountId);
       if (!counterparty.data || counterparty.data.relationships.customer.data.id !== req.user.unitCustomerId) {
-        console.log(`did not find counter party using id ${plaidAccountId}`)
+        console.log(`Did not find counterparty using id ${plaidAccountId}`);
         return res.status(400).json({ error: 'Invalid or unauthorized existing account' });
       }
       console.log(`Using existing counterparty:`, counterparty.data.id);
     }
 
-
-    console.log(`Savings plan updated for goal ${savingsGoalId}`);
-
-    const user = (await User.findById(req.user._id));
-    console.log(user);
-    const unitAccountId = user.unitAccountId;
-    if (!unitAccountId) {
-      console.log('could not find unitAccountId');
-      res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
+    // Validate schedule
+    const { startTime, endTime, interval, dayOfMonth, dayOfWeek, totalNumberOfPayments } = schedule;
+    if (!startTime || !interval) {
+      return res.status(400).json({ error: 'startTime and interval are required' });
+    }
+    if (interval !== 'Weekly' && interval !== 'Monthly') {
+      return res.status(400).json({ error: 'interval must be Weekly or Monthly' });
+    }
+    if (interval === 'Monthly' && !dayOfMonth) {
+      return res.status(400).json({ error: 'dayOfMonth is required for Monthly interval' });
+    }
+    if (interval === 'Weekly' && !dayOfWeek) {
+      return res.status(400).json({ error: 'dayOfWeek is required for Weekly interval' });
+    }
+    if (dayOfMonth && (isNaN(parseInt(dayOfMonth)) || parseInt(dayOfMonth) < -5 || parseInt(dayOfMonth) > 28 || (parseInt(dayOfMonth) > 0 && parseInt(dayOfMonth) < 1))) {
+      return res.status(400).json({ error: 'dayOfMonth must be between 1-28 or -5 to -1' });
+    }
+    if (dayOfWeek && !['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].includes(dayOfWeek)) {
+      return res.status(400).json({ error: 'dayOfWeek must be a valid day (e.g., Monday)' });
+    }
+    if (totalNumberOfPayments && (isNaN(parseInt(totalNumberOfPayments)) || parseInt(totalNumberOfPayments) <= 0)) {
+      return res.status(400).json({ error: 'totalNumberOfPayments must be a positive integer' });
     }
 
+    const user = await User.findById(req.user._id);
+    const unitAccountId = user.unitAccountId;
+    if (!unitAccountId) {
+      console.log('Could not find unitAccountId');
+      return res.status(500).json({ error: 'Failed to set up savings plan: Unit account ID not found' });
+    }
+
+    // Construct dynamic recurring payment request
     const recurringPaymentRequest = {
       type: 'recurringDebitAchPayment',
       attributes: {
         amount: parseFloat(amount) * 100, // Convert to cents
         description: `BeforePay`,
         schedule: {
-          startTime: '2025-06-24', // Start date in ISO format
-          interval: 'Weekly', // ISO 8601 duration
-          dayOfWeek: 'Tuesday'
+          startTime,
+          endTime: endTime || undefined,
+          interval,
+          ...(interval === 'Monthly' && { dayOfMonth: parseInt(dayOfMonth) }),
+          ...(interval === 'Weekly' && { dayOfWeek }),
+          totalNumberOfPayments: totalNumberOfPayments ? parseInt(totalNumberOfPayments) : undefined
         },
         verifyCounterpartyBalance: true,
         idempotencyKey: `${req.user.email}-recurring-${Date.now()}`
@@ -192,31 +202,23 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
       }
     };
 
-    console.log(recurringPaymentRequest)
-    console.log({
-      type: 'depositAccount',
-      id: unitAccountId
-    })
-    console.log({
-      type: 'counterparty',
-      id: counterparty.data.id
-    })
-
+    console.log('Recurring payment request:', recurringPaymentRequest);
     const recurringPayment = await unit.recurringPayments.create(recurringPaymentRequest);
     console.log('Recurring ACH payment created:', recurringPayment.data.id);
-    
+
     // Update SavingsGoal with savings plan details
     savingsGoal.savingsAmount = parseFloat(amount);
-    savingsGoal.savingsFrequency = frequency;
-    savingsGoal.savingsStartDate = new Date(start_date).toISOString().split('T')[0];
+    savingsGoal.savingsFrequency = interval; // Updated to reflect new interval
+    savingsGoal.savingsStartDate = startTime; // Updated to reflect new startTime
     savingsGoal.externalAccountId = counterparty.data.id;
     savingsGoal.bankName = counterparty.data.attributes.bank || 'Unit Bank';
     savingsGoal.bankLastFour = counterparty.data.attributes.accountNumber ? `****${counterparty.data.attributes.accountNumber.slice(-4)}` : '****';
     savingsGoal.bankAccountType = counterparty.data.attributes.accountType || 'Unknown';
     savingsGoal.nextRunnable = recurringPayment.data.attributes.schedule.nextScheduledAction;
     await savingsGoal.save();
+    console.log(`Savings plan updated for goal ${savingsGoalId}`);
 
-    res.json({ success: true });
+    res.json({ success: true, recurringPaymentId: recurringPayment.data.id });
   } catch (error) {
     console.error('Setup savings error:', error.response?.data || error.message, error.stack);
     res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
