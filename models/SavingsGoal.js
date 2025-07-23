@@ -41,6 +41,7 @@ const savingsGoalSchema = new mongoose.Schema({
   bankLastFour: String,
   bankAccountType: String,
   externalAccountId: String,
+  plaidToken: String,
   nextRunnable: { type: Date, default: null },
   transfers: [transferSchema]
 });

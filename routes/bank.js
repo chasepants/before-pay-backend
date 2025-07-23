@@ -72,6 +72,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
     }
 
     let counterparty;
+    let processorToken;
     if (plaidAccessToken) {
       // New account linking
       const configuration = new Configuration({
@@ -106,7 +107,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
       const processorTokenResponse = await plaidClient.processorTokenCreate(request);
       console.log('Plaid processor token response:', processorTokenResponse.data);
 
-      const processorToken = processorTokenResponse.data.processor_token;
+      processorToken = processorTokenResponse.data.processor_token;
       console.log('Plaid processor token:', processorToken);
 
       counterparty = await unit.counterparties.create({
@@ -215,6 +216,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
     savingsGoal.bankLastFour = counterparty.data.attributes.accountNumber ? `****${counterparty.data.attributes.accountNumber.slice(-4)}` : '****';
     savingsGoal.bankAccountType = counterparty.data.attributes.accountType || 'Unknown';
     savingsGoal.nextRunnable = recurringPayment.data.attributes.schedule.nextScheduledAction;
+    savingsGoal.plaidAccessToken = processorToken;
     await savingsGoal.save();
     console.log(`Savings plan updated for goal ${savingsGoalId}`);
 
