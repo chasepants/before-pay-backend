@@ -1,4 +1,3 @@
-// backend/routes/auth.js
 const router = require('express').Router();
 const passport = require('passport');
 const User = require('../models/User');
@@ -6,7 +5,7 @@ const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 const axios = require('axios');
 const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage() }); // Store file in memory as Buffer
+const upload = multer({ storage: multer.memoryStorage() });
 
 const ensureAuthenticated = (req, res, next) => {
   if (req.isAuthenticated()) return next();

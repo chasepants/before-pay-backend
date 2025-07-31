@@ -1,15 +1,12 @@
-// backend/routes/bank.js (partial update)
 const express = require('express');
 const axios = require('axios');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 const router = express.Router();
-const User = require('../models/User');
 const SavingsGoal = require('../models/SavingsGoal');
 const {
   Configuration,
   PlaidApi,
   PlaidEnvironments,
-  ProcessorTokenCreateRequest,
 } = require('plaid');
 require('dotenv').config();
 
@@ -38,193 +35,112 @@ router.post('/plaid-link-token', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.get('/counterparties/:userId', ensureAuthenticated, async (req, res) => {
-  try {
-    const user = await User.findById(req.params.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    const counterparties = await unit.counterparties.list({ customerId: user.unitCustomerId });
-    res.json({ counterparties: counterparties.data.map(cp => ({
-      id: cp.id,
-      name: cp.attributes.name,
-      mask: cp.attributes.accountNumber ? `****${cp.attributes.accountNumber.slice(-4)}` : '****'
-    })) });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch counterparties' });
-  }
-});
-
 // backend/routes/bank.js (partial update)
 router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
   const { savingsGoalId, plaidAccessToken, plaidAccountId, amount, schedule } = req.body;
   console.log('Request body:', req.body);
+
+  // Validate required fields
+  if (!savingsGoalId || !plaidAccountId || !amount || !schedule) {
+    return res.status(400).json({ error: 'savingsGoalId, plaidAccountId, amount, and schedule are required' });
+  }
+
+  // Validate schedule
+  const { startTime, interval, dayOfMonth, dayOfWeek } = schedule;
+  if (!startTime || !interval) {
+    return res.status(400).json({ error: 'startTime and interval are required' });
+  }
+  if (interval !== 'Weekly' && interval !== 'Monthly') {
+    return res.status(400).json({ error: 'interval must be Weekly or Monthly' });
+  }
+  if (interval === 'Monthly' && !dayOfMonth) {
+    return res.status(400).json({ error: 'dayOfMonth is required for Monthly interval' });
+  }
+  if (interval === 'Weekly' && !dayOfWeek) {
+    return res.status(400).json({ error: 'dayOfWeek is required for Weekly interval' });
+  }
+  if (dayOfMonth && (isNaN(parseInt(dayOfMonth)) || parseInt(dayOfMonth) < -5 || parseInt(dayOfMonth) > 28 || (parseInt(dayOfMonth) > 0 && parseInt(dayOfMonth) < 1))) {
+    return res.status(400).json({ error: 'dayOfMonth must be between 1-28 or -5 to -1' });
+  }
+  if (dayOfWeek && !['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].includes(dayOfWeek)) {
+    return res.status(400).json({ error: 'dayOfWeek must be a valid day (e.g., Monday)' });
+  }
+
   try {
-    // Validate required fields
-    if (!savingsGoalId || !plaidAccountId || !amount || !schedule) {
-      return res.status(400).json({ error: 'savingsGoalId, plaidAccountId, amount, and schedule are required' });
-    }
+    var savingsGoal = await SavingsGoal.findById(savingsGoalId);
+  } catch(error) {
+    res.status(500).json({ error: 'We had an issue finding the savings item' })
+  }
 
-    const savingsGoal = await SavingsGoal.findById(savingsGoalId);
-    console.log('SavingsGoal userId:', savingsGoal.userId.toString());
-    console.log('Request userId:', req.user._id);
-    console.log('SavingsGoal:', savingsGoal);
-    if (!savingsGoal || savingsGoal.userId.toString() !== req.user._id.toString()) {
-      return res.status(404).json({ error: 'Savings goal not found or unauthorized' });
-    }
+  if (!savingsGoal || savingsGoal.userId.toString() !== req.user._id.toString()) {
+    return res.status(404).json({ error: 'Savings goal not found or unauthorized' });
+  }
 
-    let counterparty;
-    let processorToken;
-    if (plaidAccessToken) {
-      // New account linking
-      const configuration = new Configuration({
-        basePath: PlaidEnvironments[process.env.PLAID_ENVIRONMENT],
-        baseOptions: {
-          headers: {
-            'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-            'PLAID-SECRET': process.env.PLAID_SECRET,
-            'Plaid-Version': '2020-09-14',
-          },
-        },
-      });
-
-      const plaidClient = new PlaidApi(configuration);
-
-      // Exchange the public_token from Plaid Link for an access token
-      const tokenResponse = await plaidClient.itemPublicTokenExchange({
-        public_token: plaidAccessToken,
-      });
-      console.log('Plaid token exchange response:', tokenResponse.data);
-
-      const accessToken = tokenResponse.data.access_token;
-      console.log('Plaid access token:', accessToken);
-
-      // Create a processor token for a specific account id
-      const request = {
-        access_token: accessToken,
-        account_id: plaidAccountId,
-        processor: 'unit',
-      };
-
-      const processorTokenResponse = await plaidClient.processorTokenCreate(request);
-      console.log('Plaid processor token response:', processorTokenResponse.data);
-
-      processorToken = processorTokenResponse.data.processor_token;
-      console.log('Plaid processor token:', processorToken);
-
-      counterparty = await unit.counterparties.create({
-        type: 'achCounterparty',
-        attributes: {
-          name: `${req.user.firstName} ${req.user.lastName}`,
-          plaidProcessorToken: processorToken,
-          type: 'Person',
-          permissions: 'DebitOnly'
-        },
-        relationships: {
-          customer: {
-            data: {
-              type: 'customer',
-              id: req.user.unitCustomerId
-            }
-          }
-        }
-      });
-      console.log(`Counterparty created:`, counterparty.data.id);
-    } else {
-      // Use existing account (plaidAccountId is assumed to be the counterparty ID for existing accounts)
-      console.log(`Searching for counterparty using id ${plaidAccountId}`);
-      counterparty = await unit.counterparties.get(plaidAccountId);
-      if (!counterparty.data || counterparty.data.relationships.customer.data.id !== req.user.unitCustomerId) {
-        console.log(`Did not find counterparty using id ${plaidAccountId}`);
-        return res.status(400).json({ error: 'Invalid or unauthorized existing account' });
-      }
-      console.log(`Using existing counterparty:`, counterparty.data.id);
-    }
-
-    // Validate schedule
-    const { startTime, endTime, interval, dayOfMonth, dayOfWeek, totalNumberOfPayments } = schedule;
-    if (!startTime || !interval) {
-      return res.status(400).json({ error: 'startTime and interval are required' });
-    }
-    if (interval !== 'Weekly' && interval !== 'Monthly') {
-      return res.status(400).json({ error: 'interval must be Weekly or Monthly' });
-    }
-    if (interval === 'Monthly' && !dayOfMonth) {
-      return res.status(400).json({ error: 'dayOfMonth is required for Monthly interval' });
-    }
-    if (interval === 'Weekly' && !dayOfWeek) {
-      return res.status(400).json({ error: 'dayOfWeek is required for Weekly interval' });
-    }
-    if (dayOfMonth && (isNaN(parseInt(dayOfMonth)) || parseInt(dayOfMonth) < -5 || parseInt(dayOfMonth) > 28 || (parseInt(dayOfMonth) > 0 && parseInt(dayOfMonth) < 1))) {
-      return res.status(400).json({ error: 'dayOfMonth must be between 1-28 or -5 to -1' });
-    }
-    if (dayOfWeek && !['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].includes(dayOfWeek)) {
-      return res.status(400).json({ error: 'dayOfWeek must be a valid day (e.g., Monday)' });
-    }
-    if (totalNumberOfPayments && (isNaN(parseInt(totalNumberOfPayments)) || parseInt(totalNumberOfPayments) <= 0)) {
-      return res.status(400).json({ error: 'totalNumberOfPayments must be a positive integer' });
-    }
-
-    const user = await User.findById(req.user._id);
-    const unitAccountId = user.unitAccountId;
-    if (!unitAccountId) {
-      console.log('Could not find unitAccountId');
-      return res.status(500).json({ error: 'Failed to set up savings plan: Unit account ID not found' });
-    }
-
-    // Construct dynamic recurring payment request
-    const recurringPaymentRequest = {
-      type: 'recurringDebitAchPayment',
-      attributes: {
-        amount: parseFloat(amount) * 100, // Convert to cents
-        description: `BeforePay`,
-        schedule: {
-          startTime,
-          endTime: endTime || undefined,
-          interval,
-          ...(interval === 'Monthly' && { dayOfMonth: parseInt(dayOfMonth) }),
-          ...(interval === 'Weekly' && { dayOfWeek }),
-          totalNumberOfPayments: totalNumberOfPayments ? parseInt(totalNumberOfPayments) : undefined
-        },
-        verifyCounterpartyBalance: true,
-        idempotencyKey: `${req.user.email}-recurring-${Date.now()}`
+  let processorToken;
+  const configuration = new Configuration({
+    basePath: PlaidEnvironments[process.env.PLAID_ENVIRONMENT],
+    baseOptions: {
+      headers: {
+        'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+        'PLAID-SECRET': process.env.PLAID_SECRET,
+        'Plaid-Version': '2020-09-14',
       },
-      relationships: {
-        account: {
-          data: {
-            type: 'depositAccount',
-            id: unitAccountId
-          }
-        },
-        counterparty: {
-          data: {
-            type: 'counterparty',
-            id: counterparty.data.id
-          }
-        }
-      }
-    };
+    },
+  });
 
-    console.log('Recurring payment request:', recurringPaymentRequest);
-    const recurringPayment = await unit.recurringPayments.create(recurringPaymentRequest);
-    console.log('Recurring ACH payment created:', recurringPayment.data.id);
+  const plaidClient = new PlaidApi(configuration);
 
-    // Update SavingsGoal with savings plan details
-    savingsGoal.savingsAmount = parseFloat(amount);
-    savingsGoal.savingsFrequency = interval; // Updated to reflect new interval
-    savingsGoal.savingsStartDate = startTime; // Updated to reflect new startTime
-    savingsGoal.externalAccountId = counterparty.data.id;
-    savingsGoal.bankName = counterparty.data.attributes.bank || 'Unit Bank';
-    savingsGoal.bankLastFour = counterparty.data.attributes.accountNumber ? `****${counterparty.data.attributes.accountNumber.slice(-4)}` : '****';
-    savingsGoal.bankAccountType = counterparty.data.attributes.accountType || 'Unknown';
-    savingsGoal.nextRunnable = recurringPayment.data.attributes.schedule.nextScheduledAction;
-    savingsGoal.plaidAccessToken = processorToken;
-    await savingsGoal.save();
-    console.log(`Savings plan updated for goal ${savingsGoalId}`);
-
-    res.json({ success: true, recurringPaymentId: recurringPayment.data.id });
+  try {
+    // Exchange the public_token from Plaid Link for an access token
+    var tokenResponse = await plaidClient.itemPublicTokenExchange({
+      public_token: plaidAccessToken,
+    });
+    console.log('Plaid token exchange response:', tokenResponse.data);
   } catch (error) {
     console.error('Setup savings error:', error.response?.data || error.message, error.stack);
     res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
   }
+
+  const accessToken = tokenResponse.data.access_token;
+  console.log('Plaid access token:', accessToken);
+
+  // Create a processor token for a specific account id
+  const request = {
+    access_token: accessToken,
+    account_id: plaidAccountId,
+    processor: 'unit',
+  };
+
+  try {
+    var processorTokenResponse = await plaidClient.processorTokenCreate(request);
+    console.log('Plaid processor token response:', processorTokenResponse.data);
+  } catch (error) {
+    console.error('Setup savings error:', error.response?.data || error.message, error.stack);
+    res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
+  }
+
+  processorToken = processorTokenResponse.data.processor_token;
+  console.log('Plaid processor token:', processorToken);
+
+  // update savings goal
+  savingsGoal.savingsAmount = parseFloat(amount);
+  savingsGoal.plaidAccessToken = processorToken;
+  savingsGoal.schedule = {
+    interval, 
+    startTime,
+    dayOfMonth,
+    dayOfWeek
+  }
+  savingsGoal.bank = {
+    bankName: 'Unit Bank',
+    bankLastFour: '****',
+    bankAccountType: 'Unknown',
+  }
+  await savingsGoal.save();
+
+  console.log(`Savings plan updated for goal ${savingsGoalId}`);
+
+  res.json({ success: true });
 });
 
 router.get('/transaction-history/:savingsGoalId', ensureAuthenticated, async (req, res) => {

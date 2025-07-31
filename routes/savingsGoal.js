@@ -1,10 +1,6 @@
-// backend/routes/savingsGoal.js
 const express = require('express');
 const router = express.Router();
 const SavingsGoal = require('../models/SavingsGoal');
-const User = require('../models/User');
-const { Unit } = require('@unit-finance/unit-node-sdk');
-const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 
 const ensureAuthenticated = (req, res, next) => req.isAuthenticated() ? next() : res.status(401).json({ error: 'Unauthorized' });
 
@@ -55,25 +51,27 @@ router.post('/', ensureAuthenticated, async (req, res) => {
     const goal = new SavingsGoal({
       userId: req.user._id,
       goalName: goalName || title,
-      description,
       targetAmount: targetAmount? parseFloat(targetAmount) : price,
       currentAmount: 0,
-      productLink,
-      title,
-      price,
-      old_price,
-      extracted_price: extracted_price ? parseFloat(extracted_price) : undefined,
-      extracted_old_price: extracted_old_price ? parseFloat(extracted_old_price) : undefined,
-      product_id,
-      serpapi_product_api,
-      thumbnail,
-      source,
-      source_icon,
-      rating,
-      reviews,
-      badge,
-      tag,
-      delivery
+      product: {
+        description,
+        productLink,
+        title,
+        price,
+        old_price,
+        extracted_price: extracted_price ? parseFloat(extracted_price) : undefined,
+        extracted_old_price: extracted_old_price ? parseFloat(extracted_old_price) : undefined,
+        product_id,
+        serpapi_product_api,
+        thumbnail,
+        source,
+        source_icon,
+        rating,
+        reviews,
+        badge,
+        tag,
+        delivery
+      }
     });
     await goal.save();
     res.status(201).json(goal);

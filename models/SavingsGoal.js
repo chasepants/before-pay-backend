@@ -11,12 +11,7 @@ const transferSchema = new Schema({
   metadata: { type: Object }                  // Additional metadata (e.g., wishlistItemId)
 });
 
-const savingsGoalSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  goalName: { type: String, required: true },
-  description: { type: String }, // Optional, from manual form
-  targetAmount: { type: Number, required: true },
-  currentAmount: { type: Number, default: 0 },
+const googleProductSchema = new Schema({
   productLink: { type: String }, // Optional, from manual form or product
   title: { type: String }, // For SerpAPI products
   price: { type: String },
@@ -33,16 +28,33 @@ const savingsGoalSchema = new mongoose.Schema({
   badge: { type: String },
   tag: { type: String },
   delivery: { type: String },
-  savingsAmount: Number,
-  savingsFrequency: String,
-  savingsStartDate: String,
+});
+
+const scheduleSchema = new Schema({
+  startDate: Date,
+  interval: String,
+  dayOfMonth: Number,
+  dayOfWeek: String
+})
+
+const bankSchema = new Schema({
   bankName: String,
   bankAccountName: String,
   bankLastFour: String,
-  bankAccountType: String,
-  externalAccountId: String,
+  bankAccountType: String
+})
+
+const savingsGoalSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  goalName: { type: String, required: true },
+  description: { type: String },
+  targetAmount: { type: Number, required: true },
+  currentAmount: { type: Number, default: 0 },
+  savingsAmount: Number,
+  product: { type: googleProductSchema, required: false },
+  schedule: scheduleSchema,
+  bank: bankSchema,
   plaidToken: String,
-  nextRunnable: { type: Date, default: null },
   transfers: [transferSchema]
 });
 

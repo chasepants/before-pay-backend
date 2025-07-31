@@ -36,14 +36,14 @@ async function simulateDailyPayments(simulationDate) {
 
   for (const goal of savingsGoals) {
     try {
-      const { savingsAmount, savingsFrequency, plaidToken, userId } = goal;
+      const { savingsAmount, plaidToken, userId } = goal;
       const user = await User.findById(userId);
       if (!user || !user.unitAccountId) {
         console.warn(`Skipping goal ${goal._id}: User or unitAccountId not found`);
         continue;
       }
 
-      console.log(`Processing payment for savings goal ${goal._id} (userId: ${userId})`);
+      console.log(`Processing payment for savings goal ${goal._id} (userId: ${userId}, plaid: ${plaidToken})`);
 
       const achPaymentRequest = {
         type: 'achPayment',
@@ -74,11 +74,6 @@ async function simulateDailyPayments(simulationDate) {
         status: 'pending',
         type: 'debit'
       });
-
-      // Update nextRunnable
-      const intervalMs = savingsFrequency === 'Weekly' ? 7 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
-      const nextRunnableDate = new Date(goal.nextRunnable);
-      goal.nextRunnable = new Date(nextRunnableDate.getTime() + intervalMs);
 
       await goal.save();
     } catch (error) {
