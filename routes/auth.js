@@ -39,7 +39,8 @@ router.get('/current_user', (req, res) => {
 
 router.get('/google/callback', passport.authenticate('google', { failureRedirect: '/' }), async (req, res) => {
   console.log('Google callback triggered, req.user:', req.user);
-  console.log('Session:', req.session);
+  console.log('Session ID:', req.sessionID);
+  console.log('Session before save:', JSON.stringify(req.session, null, 2));
   if (req.user) {
     let user = await User.findOne({ email: req.user.email });
     if (!user) {
@@ -51,18 +52,21 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
         phone: req.user.phone || '',
         status: 'pending'
       });
-      try {
-        await user.save();
-        console.log('New user saved:', user._id, 'with googleId:', user.googleId);
-      } catch (error) {
-        console.error('User save error:', error);
-        return res.redirect('/');
-      }
+      await user.save();
+      console.log('New user saved:', user._id, 'with googleId:', user.googleId);
     } else if (!user.googleId) {
       user.googleId = req.user.id;
       await user.save();
     }
-    req.session.save(() => {
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.redirect('/');
+      }
+      console.log('Session saved, ID:', req.sessionID);
+      console.log('Session after save:', JSON.stringify(req.session, null, 2));
+      res.set('Set-Cookie', `connect.sid=${req.sessionID}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${14 * 24 * 60 * 60}`);
+      console.log('Set-Cookie header set:', `connect.sid=${req.sessionID}`);
       if (user.status === 'approved') {
         res.redirect(`${process.env.REACT_APP_URL}/home`);
       } else {
