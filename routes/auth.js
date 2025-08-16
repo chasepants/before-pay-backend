@@ -65,13 +65,23 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
       }
       console.log('Session saved, ID:', req.sessionID);
       console.log('Session after save:', JSON.stringify(req.session, null, 2));
-      res.set('Set-Cookie', `connect.sid=${req.sessionID}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${14 * 24 * 60 * 60}`);
-      console.log('Set-Cookie header set:', `connect.sid=${req.sessionID}`);
-      if (user.status === 'approved') {
-        res.redirect(`${process.env.REACT_APP_URL}/home`);
-      } else {
-        res.redirect(`${process.env.REACT_APP_URL}/application-signup`);
-      }
+      // Return HTML for client-side redirect instead of server-side redirect
+      const redirectUrl = user.status === 'approved' ? `${process.env.REACT_APP_URL}/home` : `${process.env.REACT_APP_URL}/application-signup`;
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Redirecting...</title>
+          <script>
+            window.location.href = '${redirectUrl}';
+          </script>
+        </head>
+        <body>
+          Redirecting to the app... If not redirected, <a href="${redirectUrl}">click here</a>.
+        </body>
+        </html>
+      `);
     });
   } else {
     console.error('No user in callback, session issue?');
