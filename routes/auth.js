@@ -32,6 +32,7 @@ router.get('/google', (req, res, next) => {
 });
 
 router.get('/current_user', (req, res) => {
+  console.log(req.user);
   res.json(req.user || null);
 });
 

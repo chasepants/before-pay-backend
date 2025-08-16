@@ -42,7 +42,12 @@ app.use(session({
     autoRemove: 'native',
     touchAfter: 24 * 60 * 60
   }),
-  cookie: { secure: false, httpOnly: true, sameSite: 'lax' }
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production' ? true : false,
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    maxAge: 14 * 24 * 60 * 60 * 1000
+  }
 }));
 app.use(passport.initialize());
 app.use(passport.session());
@@ -52,13 +57,7 @@ app.use('/api/savings-goal', savingsGoalRoutes);
 app.use('/api/bank', bankRoutes);
 
 mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => {
-    console.log('MongoDB connected');
-    mongoose.connection.db.collection('sessions').createIndex({ "expiresAt": 1 }, { expireAfterSeconds: 0 }, (err) => {
-      if (err) console.error('Failed to create session index:', err);
-      else console.log('Session index created');
-    });
-  })
+  .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
 module.exports = app;
