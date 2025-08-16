@@ -67,6 +67,7 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
       console.log('Session after save:', JSON.stringify(req.session, null, 2));
       // Return HTML for client-side redirect instead of server-side redirect
       const redirectUrl = user.status === 'approved' ? `${process.env.REACT_APP_URL}/home` : `${process.env.REACT_APP_URL}/application-signup`;
+      res.set('Set-Cookie', `connect.sid=${req.sessionID}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${14 * 24 * 60 * 60}`);
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -88,7 +89,6 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
     res.redirect('/');
   }
 });
-
 router.get('/logout', (req, res) => {
   req.logout(() => {
     req.session.destroy((err) => {
