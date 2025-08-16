@@ -27,7 +27,7 @@ app.post('/webhook', async (req, res) => {
 
 // Middleware
 app.use(cors({
-  origin: 'https://before-pay-frontend.vercel.app/',
+  origin: process.env.REACT_APP_URL,
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT'],
   allowedHeaders: ['Content-Type', 'Authorization'],
