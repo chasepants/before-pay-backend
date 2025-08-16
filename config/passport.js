@@ -1,4 +1,3 @@
-// backend/config/passport.js
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const User = require('../models/User');
@@ -15,7 +14,7 @@ async (accessToken, refreshToken, profile, done) => {
     if (!user) {
       user = new User({
         email: profile.emails[0].value,
-        googleId: profile.id, // Set Google sub as googleId
+        googleId: profile.id,
         status: 'pending'
       });
       await user.save();
@@ -25,39 +24,26 @@ async (accessToken, refreshToken, profile, done) => {
     }
     return done(null, user);
   } catch (err) {
-    console.log(err)
+    console.error('GoogleStrategy error:', err);
     return done(err);
   }
 }));
 
 passport.serializeUser((user, done) => {
-  done(null, {
-    _id: user._id,
-    email: user.email,
-    googleId: user.googleId,
-    unitAccountId: user.unitAccountId,
-    status: user.status,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    unitCustomerId: user.unitCustomerId,
-    unitApplicationId: user.unitApplicationId,
-    address: user.address,
-    ssnLast4: user.ssnLast4,
-    dateOfBirth: user.dateOfBirth,
-    plaidAccessToken: user.plaidAccessToken,
-    phone: user.phone,
-    sourceOfIncome: user.sourceOfIncome,
-    annualIncome: user.annualIncome,
-    occupation: user.occupation
-  });
+  done(null, user._id.toString());
 });
 
 passport.deserializeUser(async (id, done) => {
   try {
     const user = await User.findById(id);
+    if (!user) {
+      console.log('User not found for ID:', id);
+      return done(null, false);
+    }
+    console.log('Deserialization successful:', user.email);
     done(null, user);
   } catch (err) {
-    console.log(err)
+    console.error('Deserialize error:', err);
     done(err);
   }
 });

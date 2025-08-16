@@ -32,7 +32,8 @@ router.get('/google', (req, res, next) => {
 });
 
 router.get('/current_user', (req, res) => {
-  console.log(req.user);
+  console.log('Session in /current_user:', JSON.stringify(req.session, null, 2));
+  console.log('User in /current_user:', req.user);
   res.json(req.user || null);
 });
 

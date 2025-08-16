@@ -10,8 +10,8 @@ const authRoutes = require('./routes/auth');
 const savingsGoalRoutes = require('./routes/savingsGoal');
 const bankRoutes = require('./routes/bank');
 const webhook = require('./webhooks/index');
-
 const app = express();
+
 app.use(express.json());
 app.use(express.raw({ type: 'application/json' }));
 
@@ -25,39 +25,54 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Middleware
-app.use(cors({
-  origin: process.env.REACT_APP_URL,
-  credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'beforepay-secret',
-  resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: process.env.MONGO_URI,
-    ttl: 14 * 24 * 60 * 60,
-    autoRemove: 'native',
-    touchAfter: 24 * 60 * 60
-  }),
-  cookie: { 
-    secure: process.env.NODE_ENV === 'production' ? true : false,
-    httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 14 * 24 * 60 * 60 * 1000
-  }
-}));
-app.use(passport.initialize());
-app.use(passport.session());
-
-app.use('/api/auth', authRoutes);
-app.use('/api/savings-goal', savingsGoalRoutes);
-app.use('/api/bank', bankRoutes);
-
+// Connect to MongoDB first
 mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('MongoDB connected'))
+  .then(() => {
+    console.log('MongoDB connected');
+
+    // Middleware
+    app.use(cors({
+      origin: process.env.REACT_APP_URL,
+      credentials: true,
+      methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    }));
+
+    app.use(session({
+      secret: process.env.SESSION_SECRET || 'beforepay-secret',
+      resave: false,
+      saveUninitialized: false,
+      store: MongoStore.create({
+        mongoUrl: process.env.MONGO_URI,
+        ttl: 14 * 24 * 60 * 60, // 14 days
+        autoRemove: 'native'
+      }),
+      cookie: {
+        secure: process.env.NODE_ENV === 'production' ? true : false,
+        httpOnly: true,
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 14 * 24 * 60 * 60 * 1000
+      }
+    }));
+
+    app.use(passport.initialize());
+    app.use(passport.session());
+
+    app.use('/api/auth', authRoutes);
+    app.use('/api/savings-goal', savingsGoalRoutes);
+    app.use('/api/bank', bankRoutes);
+
+    // Test MongoDB connection
+    app.get('/test-mongo', async (req, res) => {
+      try {
+        await mongoose.connection.db.collection('sessions').findOne({});
+        res.json({ message: 'MongoDB connection successful' });
+      } catch (err) {
+        console.error('MongoDB test error:', err);
+        res.status(500).json({ error: 'MongoDB connection failed' });
+      }
+    });
+  })
   .catch(err => console.error('MongoDB connection error:', err));
 
 module.exports = app;
