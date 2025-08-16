@@ -61,9 +61,9 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
     }
     req.session.save(() => {
       if (user.status === 'approved') {
-        res.redirect('http://localhost:3000/home');
+        res.redirect('https://before-pay-frontend.vercel.app/home');
       } else {
-        res.redirect('http://localhost:3000/application-signup');
+        res.redirect('https://before-pay-frontend.vercel.app/application-signup');
       }
     });
   } else {
