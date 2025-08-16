@@ -1,4 +1,3 @@
-// simulate-daily-payments.js
 const mongoose = require('mongoose');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 require('dotenv').config();
@@ -29,11 +28,19 @@ async function simulateDailyPayments(simulationDate) {
   await connectDB();
 
   console.log(`Simulating payments for ${simulationDate}`);
-
+  const date = new Date(simulationDate);
+  const dayOfTheMonth = date.getDate();
+  const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const dayOfTheWeek  = daysOfWeek[date.getDay()];
+  console.log({ "schedule.dayOfTheMonth": dayOfTheMonth },
+      { "schedule.dayOfTheWeek": dayOfTheWeek })
   const savingsGoals = await SavingsGoal.find({
-    nextRunnable: new Date(simulationDate)
+    $or: [
+      { "schedule.dayOfMonth": dayOfTheMonth },
+      { "schedule.dayOfWeek": dayOfTheWeek }
+    ]
   });
-
+  console.log(savingsGoals);
   for (const goal of savingsGoals) {
     try {
       const { savingsAmount, plaidToken, userId } = goal;

@@ -1,6 +1,38 @@
+const SavingsGoal = require('../models/SavingsGoal');
 const User = require('../models/User');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
+
+async function handlePaymentSent(eventData) {
+const paymentId = eventData.relationships?.payment?.data?.id;
+  if (!paymentId) {
+    console.warn('No payment ID found in event data:', eventData);
+    return; // Exit early if no payment ID
+  }
+
+  try {
+    // Find the SavingsGoal containing the transfer with the matching transferId
+    const savingsGoal = await SavingsGoal.findOne({ 'transfers.transferId': paymentId });
+    if (!savingsGoal) {
+      console.warn(`No savings goal found for payment with id: ${paymentId}`);
+      return;
+    }
+
+    // Update the status of the matching transfer to 'completed'
+    const transferIndex = savingsGoal.transfers.findIndex(t => t.transferId === paymentId);
+    if (transferIndex === -1) {
+      console.warn(`No matching transfer found for payment ${paymentId} in goal ${savingsGoal._id}`);
+      return;
+    }
+
+    savingsGoal.transfers[transferIndex].status = 'completed';
+    savingsGoal.currentAmount += savingsGoal.transfers[transferIndex].amount;
+    await savingsGoal.save();
+    console.log(`Updated transfer ${paymentId} status to 'completed' for savings goal ${savingsGoal._id}`);
+  } catch (error) {
+    console.error(`Error handling payment sent for payment ${paymentId}:`, error.message, error.stack);
+  }
+}
 
 async function handleApplicationApproved(eventData) {
   const applicationId = eventData.relationships?.application?.data?.id;
@@ -115,6 +147,9 @@ const webhook = async (req, res) => {
         break;
       case 'document.approved':
         await handleDocumentApproved(eventData);
+        break;
+      case 'payment.sent':
+        await handlePaymentSent(eventData);
         break;
       default:
         console.log('unrecognized event', eventData.type);

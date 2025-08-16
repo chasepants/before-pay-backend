@@ -1,14 +1,12 @@
-// backend/models/SavingsGoal.js
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const transferSchema = new Schema({
-  transferId: { type: String, required: true }, // Dwolla transfer ID
+  transferId: { type: String, required: true }, // Unit payment ID
   amount: { type: Number, required: true },    // Amount in dollars
   date: { type: Date, required: true },       // Transfer creation date
   status: { type: String, required: true },   // e.g., "pending", "completed", "failed"
   type: { type: String, required: true },     // "debit" or "credit"
-  metadata: { type: Object }                  // Additional metadata (e.g., wishlistItemId)
 });
 
 const googleProductSchema = new Schema({

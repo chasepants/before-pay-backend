@@ -46,19 +46,31 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
   }
 
   // Validate schedule
-  const { startTime, interval, dayOfMonth, dayOfWeek } = schedule;
+  const { startTime, interval } = schedule;
   if (!startTime || !interval) {
     return res.status(400).json({ error: 'startTime and interval are required' });
   }
   if (interval !== 'Weekly' && interval !== 'Monthly') {
     return res.status(400).json({ error: 'interval must be Weekly or Monthly' });
   }
-  if (interval === 'Monthly' && !dayOfMonth) {
-    return res.status(400).json({ error: 'dayOfMonth is required for Monthly interval' });
+
+  let dayOfWeek = false;
+  let dayOfMonth = false;
+
+  if ("Monthly" == interval) {
+    const date = new Date(startTime);
+    dayOfMonth = date.getDate();
   }
-  if (interval === 'Weekly' && !dayOfWeek) {
-    return res.status(400).json({ error: 'dayOfWeek is required for Weekly interval' });
+
+  if ("Weekly" == interval) {
+    const date = new Date(startTime);
+    date.setHours(date.getHours()+12); // const date was equal to 2025-08-11T00:00:00.000Z, for example, which is a Monday but was showing as a Sunday... I think because of UTC or time zones. Putting the date to 12 hours later helped get the correct day index.
+    console.log(date);
+    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    console.log(daysOfWeek);
+    dayOfWeek = daysOfWeek[date.getDay()];
   }
+
   if (dayOfMonth && (isNaN(parseInt(dayOfMonth)) || parseInt(dayOfMonth) < -5 || parseInt(dayOfMonth) > 28 || (parseInt(dayOfMonth) > 0 && parseInt(dayOfMonth) < 1))) {
     return res.status(400).json({ error: 'dayOfMonth must be between 1-28 or -5 to -1' });
   }
@@ -124,10 +136,10 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
 
   // update savings goal
   savingsGoal.savingsAmount = parseFloat(amount);
-  savingsGoal.plaidAccessToken = processorToken;
+  savingsGoal.plaidToken = processorToken;
   savingsGoal.schedule = {
     interval, 
-    startTime,
+    startDate: startTime,
     dayOfMonth,
     dayOfWeek
   }
