@@ -37,6 +37,7 @@ router.get('/current_user', (req, res) => {
   res.json(req.user || null);
 });
 
+// auth.js (only showing /google/callback)
 router.get('/google/callback', passport.authenticate('google', { failureRedirect: '/' }), async (req, res) => {
   console.log('Google callback triggered, req.user:', req.user);
   console.log('Session ID:', req.sessionID);
@@ -65,15 +66,18 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
       }
       console.log('Session saved, ID:', req.sessionID);
       console.log('Session after save:', JSON.stringify(req.session, null, 2));
-      // Return HTML for client-side redirect instead of server-side redirect
-      const redirectUrl = user.status === 'approved' ? `${process.env.REACT_APP_URL}/home` : `${process.env.REACT_APP_URL}/application-signup`;
+      // Explicitly set the Set-Cookie header
       res.set('Set-Cookie', `connect.sid=${req.sessionID}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${14 * 24 * 60 * 60}`);
-      res.send(`
+      console.log('Set-Cookie header set:', `connect.sid=${req.sessionID}`);
+      // Send HTML for client-side redirect
+      const redirectUrl = user.status === 'approved' ? `${process.env.REACT_APP_URL}/home` : `${process.env.REACT_APP_URL}/application-signup`;
+      res.status(200).send(`
         <!DOCTYPE html>
         <html>
         <head>
           <meta charset="UTF-8">
           <title>Redirecting...</title>
+          <meta http-equiv="refresh" content="0; url=${redirectUrl}">
           <script>
             window.location.href = '${redirectUrl}';
           </script>
@@ -89,6 +93,7 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
     res.redirect('/');
   }
 });
+
 router.get('/logout', (req, res) => {
   req.logout(() => {
     req.session.destroy((err) => {
