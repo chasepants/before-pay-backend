@@ -6,6 +6,7 @@ const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 const axios = require('axios');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
+require('dotenv').config();
 
 const ensureAuthenticated = (req, res, next) => {
   if (req.isAuthenticated()) return next();
@@ -61,9 +62,9 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
     }
     req.session.save(() => {
       if (user.status === 'approved') {
-        res.redirect(`${process.env.REACT_APP_URL}home`);
+        res.redirect(`${process.env.REACT_APP_URL}/home`);
       } else {
-        res.redirect(`${REACT_APP_URL}/application-signup`);
+        res.redirect(`${process.env.REACT_APP_URL}/application-signup`);
       }
     });
   } else {
