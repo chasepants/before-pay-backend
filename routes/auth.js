@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const passport = require('passport');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
@@ -8,40 +9,28 @@ const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 require('dotenv').config();
 
-const ensureAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) return next();
-  res.status(401).json({ error: 'Unauthorized' });
-};
-
-passport.serializeUser((user, done) => {
-  done(null, user._id);
-});
-
-passport.deserializeUser(async (id, done) => {
+const ensureAuthenticated = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Unauthorized: No token provided' });
   try {
-    const user = await User.findById(id);
-    done(null, user);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId);
+    if (!user) return res.status(401).json({ error: 'Unauthorized: User not found' });
+    req.user = user;
+    next();
   } catch (err) {
-    done(err);
+    console.error('Token verification error:', err);
+    res.status(401).json({ error: 'Unauthorized: Invalid token' });
   }
-});
+};
 
 router.get('/google', (req, res, next) => {
   console.log('Initiating Google OAuth from:', req.get('Referer'));
-  passport.authenticate('google', { scope: ['profile', 'email'], session: true })(req, res, next);
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
 
-router.get('/current_user', (req, res) => {
-  console.log('Session in /current_user:', JSON.stringify(req.session, null, 2));
-  console.log('User in /current_user:', req.user);
-  res.json(req.user || null);
-});
-
-// auth.js (only showing /google/callback)
-router.get('/google/callback', passport.authenticate('google', { failureRedirect: '/' }), async (req, res) => {
+router.get('/google/callback', passport.authenticate('google', { session: false, failureRedirect: '/' }), async (req, res) => {
   console.log('Google callback triggered, req.user:', req.user);
-  console.log('Session ID:', req.sessionID);
-  console.log('Session before save:', JSON.stringify(req.session, null, 2));
   if (req.user) {
     let user = await User.findOne({ email: req.user.email });
     if (!user) {
@@ -59,52 +48,36 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
       user.googleId = req.user.id;
       await user.save();
     }
-    req.session.save((err) => {
-      if (err) {
-        console.error('Session save error:', err);
-        return res.redirect('/');
-      }
-      console.log('Session saved, ID:', req.sessionID);
-      console.log('Session after save:', JSON.stringify(req.session, null, 2));
-      // Explicitly set the Set-Cookie header
-      res.set('Set-Cookie', `connect.sid=${req.sessionID}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${14 * 24 * 60 * 60}`);
-      console.log('Set-Cookie header set:', `connect.sid=${req.sessionID}`);
-      // Send HTML for client-side redirect
-      const redirectUrl = user.status === 'approved' ? `${process.env.REACT_APP_URL}/home` : `${process.env.REACT_APP_URL}/application-signup`;
-      res.status(200).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>Redirecting...</title>
-          <meta http-equiv="refresh" content="0; url=${redirectUrl}">
-          <script>
-            window.location.href = '${redirectUrl}';
-          </script>
-        </head>
-        <body>
-          Redirecting to the app... If not redirected, <a href="${redirectUrl}">click here</a>.
-        </body>
-        </html>
-      `);
-    });
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '14d' });
+    console.log('JWT generated:', token);
+    const redirectUrl = user.status === 'approved' ? `${process.env.REACT_APP_URL}/home?token=${token}` : `${process.env.REACT_APP_URL}/application-signup?token=${token}`;
+    res.redirect(redirectUrl);
   } else {
-    console.error('No user in callback, session issue?');
+    console.error('No user in callback');
     res.redirect('/');
   }
 });
 
+router.get('/current_user', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    console.log('No token provided in /current_user');
+    return res.json(null);
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('Token decoded:', decoded);
+    const user = await User.findById(decoded.userId);
+    res.json(user || null);
+  } catch (err) {
+    console.error('Token verification error in /current_user:', err);
+    res.json(null);
+  }
+});
+
 router.get('/logout', (req, res) => {
-  req.logout(() => {
-    req.session.destroy((err) => {
-      if (err) {
-        console.error('Error destroying session:', err);
-        return res.status(500).json({ message: 'Logout failed' });
-      }
-      res.clearCookie('connect.sid', { path: '/' });
-      res.status(200).json({ message: 'Logged out successfully' });
-    });
-  });
+  // No session to destroy, just return success
+  res.status(200).json({ message: 'Logged out successfully' });
 });
 
 router.post('/complete-profile', ensureAuthenticated, async (req, res) => {
@@ -142,10 +115,7 @@ router.post('/application', ensureAuthenticated, async (req, res) => {
     type: 'individualApplication',
     attributes: {
       ssn: req.body.ssn,
-      fullName: {
-        first: req.body.firstName,
-        last: req.body.lastName
-      },
+      fullName: { first: req.body.firstName, last: req.body.lastName },
       dateOfBirth: req.body.dateOfBirth,
       address: {
         street: req.body.addressLine1,
@@ -161,20 +131,15 @@ router.post('/application', ensureAuthenticated, async (req, res) => {
       annualIncome: req.body.annualIncome || null,
       occupation: "ArchitectOrEngineer",
       idempotencyKey: `${user.email}-${Date.now()}`,
-      tags: {
-        userId: req.user._id
-      }
-    },
-  })
+      tags: { userId: req.user._id }
+    }
+  });
   try {
     const application = await unit.applications.create({
       type: 'individualApplication',
       attributes: {
         ssn: req.body.ssn,
-        fullName: {
-          first: req.body.firstName,
-          last: req.body.lastName
-        },
+        fullName: { first: req.body.firstName, last: req.body.lastName },
         dateOfBirth: req.body.dateOfBirth,
         address: {
           street: req.body.addressLine1,
@@ -190,10 +155,8 @@ router.post('/application', ensureAuthenticated, async (req, res) => {
         annualIncome: req.body.annualIncome || null,
         occupation: "ArchitectOrEngineer",
         idempotencyKey: `${user.email}-${Date.now()}`,
-        tags: {
-          userId: req.user._id
-        }
-      },
+        tags: { userId: req.user._id }
+      }
     });
     user.unitApplicationId = application.data.id;
     user.ssnLast4 = req.body.ssn.slice(-4);
@@ -222,7 +185,6 @@ router.get('/documents', ensureAuthenticated, async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     if (!user || !user.unitApplicationId) return res.status(404).json({ error: 'Application not found' });
-
     const response = await unit.applications.listDocuments(user.unitApplicationId);
     res.json({ documents: response.data });
   } catch (error) {
@@ -238,26 +200,21 @@ router.put('/document/upload', ensureAuthenticated, upload.single('file'), async
     if (!user || !user.unitApplicationId || user.unitApplicationId !== applicationId || user.status !== 'awaitingDocuments') {
       return res.status(403).json({ error: 'Unauthorized or invalid status' });
     }
-
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-
-    const fileType = req.file.mimetype.split('/')[1]; // e.g., 'png', 'jpeg', 'pdf'
+    const fileType = req.file.mimetype.split('/')[1];
     if (!['jpeg', 'png', 'pdf'].includes(fileType)) {
       return res.status(400).json({ error: 'Unsupported file type. Use jpeg, png, or pdf.' });
     }
-
     const unitApiUrl = `https://api.s.unit.sh/applications/${applicationId}/documents/${documentId}`;
     const headers = {
       'Authorization': `Bearer ${process.env.UNIT_API_KEY}`,
-      'Content-Type': `image/${fileType === 'jpeg' ? 'jpeg' : fileType}` // Adjust for pdf
+      'Content-Type': `image/${fileType === 'jpeg' ? 'jpeg' : fileType}`
     };
-
     if (fileType === 'pdf') {
       headers['Content-Type'] = 'application/pdf';
     }
-
     const response = await axios.put(unitApiUrl, req.file.buffer, { headers });
     res.json({ success: true, documentId: response.data.id });
   } catch (error) {

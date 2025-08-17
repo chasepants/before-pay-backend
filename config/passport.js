@@ -29,23 +29,4 @@ async (accessToken, refreshToken, profile, done) => {
   }
 }));
 
-passport.serializeUser((user, done) => {
-  done(null, user._id.toString());
-});
-
-passport.deserializeUser(async (id, done) => {
-  try {
-    const user = await User.findById(id);
-    if (!user) {
-      console.log('User not found for ID:', id);
-      return done(null, false);
-    }
-    console.log('Deserialization successful:', user.email);
-    done(null, user);
-  } catch (err) {
-    console.error('Deserialize error:', err);
-    done(err);
-  }
-});
-
 module.exports = passport;

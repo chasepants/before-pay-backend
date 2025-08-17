@@ -1,7 +1,5 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const session = require('express-session');
-const MongoStore = require('connect-mongo');
 const passport = require('passport');
 const cors = require('cors');
 require('dotenv').config();
@@ -10,8 +8,8 @@ const authRoutes = require('./routes/auth');
 const savingsGoalRoutes = require('./routes/savingsGoal');
 const bankRoutes = require('./routes/bank');
 const webhook = require('./webhooks/index');
-
 const app = express();
+
 app.use(express.json());
 app.use(express.raw({ type: 'application/json' }));
 
@@ -25,37 +23,22 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Middleware
 app.use(cors({
   origin: process.env.REACT_APP_URL,
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'beforepay-secret',
-  resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: process.env.MONGO_URI,
-    ttl: 14 * 24 * 60 * 60,
-    autoRemove: 'native',
-    touchAfter: 24 * 60 * 60
-  }),
-  cookie: { 
-    secure: process.env.NODE_ENV === 'production' ? true : false,
-    httpOnly: true,
-    sameSite: 'lax',
-    maxAge: 14 * 24 * 60 * 60 * 1000,
-    domain: process.env.COOKIE_DOMAIN
-  }
-}));
+
 app.use(passport.initialize());
-app.use(passport.session());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/savings-goal', savingsGoalRoutes);
 app.use('/api/bank', bankRoutes);
+
+app.get('/test', (req, res) => {
+  res.json({ message: 'Server is running' });
+});
 
 mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
