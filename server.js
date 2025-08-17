@@ -46,7 +46,8 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production' ? true : false,
     httpOnly: true,
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 14 * 24 * 60 * 60 * 1000
+    maxAge: 14 * 24 * 60 * 60 * 1000,
+    domain: process.env.COOKIE_DOMAIN
   }
 }));
 app.use(passport.initialize());
