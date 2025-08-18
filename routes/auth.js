@@ -66,7 +66,6 @@ router.get('/current_user', async (req, res) => {
   }
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('Token decoded:', decoded);
     const user = await User.findById(decoded.userId);
     res.json(user || null);
   } catch (err) {
@@ -75,8 +74,25 @@ router.get('/current_user', async (req, res) => {
   }
 });
 
+router.get('/customer-token', ensureAuthenticated, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user || !user.unitApplicationId) {
+      return res.status(400).json({ error: 'No Unit application found for user' });
+    }
+    const response = await unit.customerToken.createToken(user.unitCustomerId, {
+      attributes: { scope: 'customers statements accounts' },
+      type: "customerToken"
+    });
+    console.log('Customer token generated:', response.data.attributes.token);
+    res.json({ token: response.data.attributes.token });
+  } catch (error) {
+    console.error('Customer token error:', error.message, error.stack);
+    res.status(500).json({ error: 'Failed to generate customer token: ' + error.message });
+  }
+});
+
 router.get('/logout', (req, res) => {
-  // No session to destroy, just return success
   res.status(200).json({ message: 'Logged out successfully' });
 });
 
@@ -111,29 +127,6 @@ router.post('/application', ensureAuthenticated, async (req, res) => {
   console.log('Application request received:', req.body);
   const user = await User.findById(req.user._id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  console.log({
-    type: 'individualApplication',
-    attributes: {
-      ssn: req.body.ssn,
-      fullName: { first: req.body.firstName, last: req.body.lastName },
-      dateOfBirth: req.body.dateOfBirth,
-      address: {
-        street: req.body.addressLine1,
-        city: req.body.city,
-        state: req.body.state,
-        postalCode: req.body.postalCode,
-        country: req.body.country
-      },
-      email: req.body.email || user.email,
-      phone: { number: req.body.phone || user.phone || '1234567890', countryCode: '1' },
-      ip: '127.0.0.1',
-      sourceOfIncome: req.body.sourceOfIncome || null,
-      annualIncome: req.body.annualIncome || null,
-      occupation: "ArchitectOrEngineer",
-      idempotencyKey: `${user.email}-${Date.now()}`,
-      tags: { userId: req.user._id }
-    }
-  });
   try {
     const application = await unit.applications.create({
       type: 'individualApplication',
@@ -153,7 +146,7 @@ router.post('/application', ensureAuthenticated, async (req, res) => {
         ip: '127.0.0.1',
         sourceOfIncome: req.body.sourceOfIncome || null,
         annualIncome: req.body.annualIncome || null,
-        occupation: "ArchitectOrEngineer",
+        occupation: req.body.occupation || 'ArchitectOrEngineer',
         idempotencyKey: `${user.email}-${Date.now()}`,
         tags: { userId: req.user._id }
       }
