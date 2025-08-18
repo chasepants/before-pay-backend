@@ -81,7 +81,7 @@ router.get('/customer-token', ensureAuthenticated, async (req, res) => {
       return res.status(400).json({ error: 'No Unit application found for user' });
     }
     const response = await unit.customerToken.createToken(user.unitCustomerId, {
-      attributes: { scope: 'customers statements accounts' },
+      attributes: { scope: 'customers statements accounts authorizations transactions' },
       type: "customerToken"
     });
     console.log('Customer token generated:', response.data.attributes.token);
