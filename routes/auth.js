@@ -77,7 +77,7 @@ router.get('/current_user', async (req, res) => {
 router.get('/customer-token', ensureAuthenticated, async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
-    if (!user || !user.unitApplicationId) {
+    if (!user || !user.unitCustomerId) {
       return res.status(400).json({ error: 'No Unit application found for user' });
     }
     const response = await unit.customerToken.createToken(user.unitCustomerId, {
@@ -123,54 +123,102 @@ router.get('/profile-status', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.post('/application', ensureAuthenticated, async (req, res) => {
-  console.log('Application request received:', req.body);
-  const user = await User.findById(req.user._id);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+router.get('/create-application-form', ensureAuthenticated, async (req, res) => {
   try {
-    const application = await unit.applications.create({
-      type: 'individualApplication',
-      attributes: {
-        ssn: req.body.ssn,
-        fullName: { first: req.body.firstName, last: req.body.lastName },
-        dateOfBirth: req.body.dateOfBirth,
-        address: {
-          street: req.body.addressLine1,
-          city: req.body.city,
-          state: req.body.state,
-          postalCode: req.body.postalCode,
-          country: req.body.country
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+
+    // if (user.unitApplicationFormId && user.unitApplicationFormExpiration) {
+    //   const expirationDate = new Date(user.unitApplicationFormExpiration);
+    //   if (expirationDate > new Date()) {
+    //     console.log(`Using cached application form for user ${user.email}:`, user.unitApplicationFormId);
+    //     return res.json({
+    //       id: user.unitApplicationFormId,
+    //       token: user.unitApplicationFormToken,
+    //       expiration: user.unitApplicationFormExpiration,
+    //       url: user.unitApplicationFormUrl
+    //     });
+    //   }
+    // }  
+
+    let response;
+    if (user.unitApplicationId) {
+      response = await axios.post(
+        'https://api.s.unit.sh/application-forms',
+        {
+          data: {
+            type: 'applicationForm',
+            attributes: {
+              idempotencyKey: `${user._id}`,
+              tags: { userId: user._id.toString() },
+              applicantDetails: {
+                email: user.email,
+              }
+            },
+            relationships: {
+              application: {
+                data: { type: 'application', id: user.unitApplicationId }
+              }
+            }
+          }
         },
-        email: req.body.email || user.email,
-        phone: { number: req.body.phone || user.phone || '1234567890', countryCode: '1' },
-        ip: '127.0.0.1',
-        sourceOfIncome: req.body.sourceOfIncome || null,
-        annualIncome: req.body.annualIncome || null,
-        occupation: req.body.occupation || 'ArchitectOrEngineer',
-        idempotencyKey: `${user.email}-${Date.now()}`,
-        tags: { userId: req.user._id }
-      }
-    });
-    user.unitApplicationId = application.data.id;
-    user.ssnLast4 = req.body.ssn.slice(-4);
-    user.dateOfBirth = new Date(req.body.dateOfBirth);
-    user.address = {
-      line1: req.body.addressLine1,
-      city: req.body.city,
-      state: req.body.state,
-      postalCode: req.body.postalCode
-    };
-    user.sourceOfIncome = req.body.sourceOfIncome;
-    user.annualIncome = req.body.annualIncome;
-    user.occupation = req.body.occupation;
-    user.firstName = req.body.firstName;
-    user.lastName = req.body.lastName;
+        {
+          headers: {
+            'Content-Type': 'application/vnd.api+json',
+            'Authorization': `Bearer ${process.env.UNIT_API_KEY}`,
+            'X-Accept-Version': 'V2024_06'
+          }
+        }
+      );
+    } else {
+      response = await axios.post(
+        'https://api.s.unit.sh/application-forms',
+        {
+          data: {
+            type: 'applicationForm',
+            attributes: {
+              idempotencyKey: `${user._id}-${Date.now()}`,
+              tags: { userId: user._id.toString() },
+              applicantDetails: {
+                email: user.email
+              },
+              allowedApplicationTypes: ['Individual']
+            }
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/vnd.api+json',
+            'Authorization': `Bearer ${process.env.UNIT_API_KEY}`,
+            'X-Accept-Version': 'V2024_06'
+          }
+        }
+      );
+    }
+
+    const data = response.data.data;
+    console.log('Application form created:', data);
+
+    // Store application form details in user document
+    user.unitApplicationFormId = data.id;
+    user.unitApplicationFormToken = data.attributes.applicationFormToken.token;
+    user.unitApplicationFormExpiration = data.attributes.applicationFormToken.expiration;
+    user.unitApplicationFormUrl = data.links.related.href;
+    
     await user.save();
-    console.log('Application created:', application.data.id);
-    res.json({ message: 'Application submitted', applicationId: application.data.id });
+    console.log(`User ${user.email} updated with unitApplicationFormId: ${data.id}`);
+
+    res.json({
+      id: data.id,
+      token: data.attributes.applicationFormToken.token,
+      expiration: data.attributes.applicationFormToken.expiration,
+      url: data.links.related.href
+    });
   } catch (error) {
-    console.error('Application error:', error.message, error.stack);
-    res.status(500).json({ error: error.message });
+    console.error('Application form creation error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to create application form: ' + (error.response?.data?.error || error.message) });
   }
 });
 

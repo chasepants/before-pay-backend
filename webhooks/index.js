@@ -4,7 +4,7 @@ const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 
 async function handlePaymentSent(eventData) {
-const paymentId = eventData.relationships?.payment?.data?.id;
+  const paymentId = eventData.relationships?.payment?.data?.id;
   if (!paymentId) {
     console.warn('No payment ID found in event data:', eventData);
     return; // Exit early if no payment ID
@@ -54,40 +54,69 @@ async function handleApplicationDenied(eventData) {
   }
 }
 
-async function handleCustomerCreated(eventData) {
+async function handleApplicationCreated(eventData) {
+  const userId = eventData.attributes.tags?.userId;
   const applicationId = eventData.relationships.application.data.id;
-  const user = await User.findOne({ unitApplicationId: applicationId });
-  if (user) {
-    user.status = 'approved';
-    user.unitCustomerId = eventData.relationships.customer.data.id;
+  if (!userId) {
+    console.warn('No userId found in tags for customer.created event');
+    return;
+  }
 
-    const depositAccountRequest = {
-      type: 'depositAccount',
-      attributes: {
-        depositProduct: 'checking',
-        tags: { purpose: 'savings' },
-        idempotencyKey: `${user.email}-deposit-${Date.now()}`
-      },
-      relationships: {
-        customer: {
-          data: { type: 'customer', id: user.unitCustomerId }
-        }
+  const user = await User.findById(userId);
+  if (!user) {
+    console.warn(`No user found for userId: ${userId}`);
+    return;
+  }
+
+  user.unitApplicationId = applicationId;
+  user.status = "pending";
+
+  await user.save();
+}
+
+async function handleCustomerCreated(eventData) {
+  const userId = eventData.attributes.tags?.userId;
+  const customerId = eventData.relationships.customer.data.id;
+
+  if (!userId) {
+    console.warn('No userId found in tags for customer.created event');
+    return;
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    console.warn(`No user found for userId: ${userId}`);
+    return;
+  }
+
+  user.unitCustomerId = customerId;
+  user.status = 'approved';
+
+  const depositAccountRequest = {
+    type: 'depositAccount',
+    attributes: {
+      depositProduct: 'checking',
+      tags: { purpose: 'savings' },
+      idempotencyKey: `${user.email}-deposit-${Date.now()}`
+    },
+    relationships: {
+      customer: {
+        data: { type: 'customer', id: customerId }
       }
-    };
-    try {
-      const accountResponse = await unit.accounts.create(depositAccountRequest);
-      user.unitAccountId = accountResponse.data.id;
-      await user.save();
-      console.log(`Deposit account created for user ${user.email} with accountId: ${user.unitAccountId}`);
-    } catch (accountError) {
-      console.error('Failed to create deposit account:', accountError.message, accountError.stack);
-      user.status = 'pending';
-      await user.save();
-      throw new Error('Failed to create deposit account');
     }
-    console.log(`User ${user.email} customer created with unitCustomerId: ${user.unitCustomerId}`);
-  } else {
-    console.warn(`No user found for applicationId: ${applicationId}`);
+  };
+
+  try {
+    const accountResponse = await unit.accounts.create(depositAccountRequest);
+    user.unitAccountId = accountResponse.data.id;
+    await user.save();
+    console.log(`Deposit account created for user ${user.email} with accountId: ${user.unitAccountId}`);
+    console.log(`User ${user.email} updated with unitCustomerId: ${user.unitCustomerId}, unitApplicationId: ${user.unitApplicationId}`);
+  } catch (accountError) {
+    console.error('Failed to create deposit account:', accountError.message, accountError.stack);
+    user.status = 'pending';
+    await user.save();
+    throw new Error('Failed to create deposit account');
   }
 }
 
@@ -144,6 +173,9 @@ const webhook = async (req, res) => {
         break;
       case 'application.pendingReview':
         await handleApplicationPendingReview(eventData);
+        break;
+      case 'application.created':
+        await handleApplicationCreated(eventData);
         break;
       case 'document.approved':
         await handleDocumentApproved(eventData);
