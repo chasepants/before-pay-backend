@@ -7,8 +7,8 @@
     ],
     "crons": [
         {
-            "path": "/api/cron/process-payments",
-            "schedule": "15 7 * * *"
+            "path": "/api/cron/process-payments?token=Beforepay1234!",
+            "schedule": "45 14 * * *"
         }
     ]
 }
