@@ -46,6 +46,10 @@ router.get('/google/callback', passport.authenticate('google', { session: false,
       console.log('New user saved:', user._id, 'with googleId:', user.googleId);
     } else if (!user.googleId) {
       user.googleId = req.user.id;
+      user.firstName = req.user.name.givenName;
+      user.lastName = req.user.name.familyName;
+      await user.save();
+    } else {
       await user.save();
     }
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '14d' });
@@ -94,33 +98,6 @@ router.get('/customer-token', ensureAuthenticated, async (req, res) => {
 
 router.get('/logout', (req, res) => {
   res.status(200).json({ message: 'Logged out successfully' });
-});
-
-router.post('/complete-profile', ensureAuthenticated, async (req, res) => {
-  const { address, ssnLast4, dateOfBirth } = req.body;
-  try {
-    if (!address || !ssnLast4 || !dateOfBirth) {
-      return res.status(400).json({ error: 'Address and SSN last 4 required' });
-    }
-    const user = await User.findById(req.user._id);
-    user.address = address;
-    user.ssnLast4 = ssnLast4;
-    user.dateOfBirth = dateOfBirth;
-    await user.save();
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to save profile' });
-  }
-});
-
-router.get('/profile-status', ensureAuthenticated, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-    const completed = user.address?.line1 && user.ssnLast4 && user.dateOfBirth;
-    res.json({ completed });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to check profile status' });
-  }
 });
 
 router.get('/create-application-form', ensureAuthenticated, async (req, res) => {

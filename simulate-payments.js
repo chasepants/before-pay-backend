@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 require('dotenv').config();
-const User = require('./models/User'); // Adjust path as needed
-const SavingsGoal = require('./models/SavingsGoal'); // Adjust path as needed
+const User = require('./models/User');
+const SavingsGoal = require('./models/SavingsGoal');
 
 async function connectDB() {
   try {
@@ -28,19 +28,32 @@ async function simulateDailyPayments(simulationDate) {
   await connectDB();
 
   console.log(`Simulating payments for ${simulationDate}`);
-  const date = new Date(simulationDate);
+  
+  // Fix: Parse the date more explicitly to avoid timezone issues
+  const [year, month, day] = simulationDate.split('-').map(Number);
+  const date = new Date(year, month - 1, day); // month is 0-indexed in JavaScript
+  
   const dayOfTheMonth = date.getDate();
   const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const dayOfTheWeek  = daysOfWeek[date.getDay()];
+  const dayOfTheWeek = daysOfWeek[date.getDay()];
+  
   console.log({ "schedule.dayOfTheMonth": dayOfTheMonth },
-      { "schedule.dayOfTheWeek": dayOfTheWeek })
+      { "schedule.dayOfTheWeek": dayOfTheWeek });
+  
+  // Add debug logging to verify the date
+  console.log(`Parsed date: ${date.toDateString()}`);
+  console.log(`Day of week index: ${date.getDay()}`);
+  
   const savingsGoals = await SavingsGoal.find({
     $or: [
       { "schedule.dayOfMonth": dayOfTheMonth },
       { "schedule.dayOfWeek": dayOfTheWeek }
     ]
   });
+  
+  console.log(`Found ${savingsGoals.length} savings goals for ${dayOfTheWeek} (${dayOfTheMonth})`);
   console.log(savingsGoals);
+  
   for (const goal of savingsGoals) {
     try {
       const { savingsAmount, plaidToken, userId } = goal;
@@ -93,7 +106,6 @@ async function simulateDailyPayments(simulationDate) {
   process.exit(0);
 }
 
-// Parse command-line date argument (e.g., node simulate-daily-payments.js 2025-07-23)
 const simulationDate = process.argv[2];
 simulateDailyPayments(simulationDate).catch(error => {
   console.error('Simulation failed:', error);
