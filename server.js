@@ -8,6 +8,7 @@ const authRoutes = require('./routes/auth');
 const savingsGoalRoutes = require('./routes/savingsGoal');
 const bankRoutes = require('./routes/bank');
 const webhook = require('./webhooks/index');
+const { processScheduledPayments } = require('./cron/process-payments');
 const app = express();
 
 app.use(express.json());
@@ -38,6 +39,20 @@ app.use('/api/bank', bankRoutes);
 
 app.get('/test', (req, res) => {
   res.json({ message: 'Server is running' });
+});
+
+app.get('/api/cron/process-payments', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    await processScheduledPayments();
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Cron route error:', e);
+    res.status(500).json({ error: 'Cron failed' });
+  }
 });
 
 mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })

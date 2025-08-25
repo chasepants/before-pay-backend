@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 require('dotenv').config();
-const User = require('./models/User');
-const SavingsGoal = require('./models/SavingsGoal');
+const User = require('../models/User');
+const SavingsGoal = require('../models/SavingsGoal');
 
 async function connectDB() {
   try {
