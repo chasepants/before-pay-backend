@@ -108,6 +108,51 @@ router.delete('/:id', ensureAuthenticated, async (req, res) => {
   }
 });
 
+router.put('/:id', ensureAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  const { goalName, description, targetAmount } = req.body;
+  console.log(req.body)
+  try {
+    const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
+    if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
+    
+    if (goalName !== undefined) goal.goalName = goalName;
+    if (description !== undefined) {
+      goal.product = {
+        description,
+        ...goal.product
+      };
+    }
+
+    if (targetAmount !== undefined) {
+      goal.targetAmount = parseFloat(targetAmount);
+    }
+
+    await goal.save();
+    res.json(goal);
+  } catch (err) {
+    console.error('Update goal error:', err);
+    res.status(500).json({ error: 'Failed to update savings goal' });
+  }
+});
+
+router.patch('/:id/pause', ensureAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  const { isPaused } = req.body;
+  console.log(id, isPaused)
+  try {
+    const updated = await SavingsGoal.findOneAndUpdate(
+      { _id: id, userId: req.user._id },
+      { $set: { isPaused: !!isPaused } },
+      { new: true }
+    );
+    if (!updated) return res.status(404).json({ error: 'Savings goal not found' });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update pause state' });
+  }
+});
+
 router.get('/search', ensureAuthenticated, async (req, res) => {
   const { q } = req.query;
   try {

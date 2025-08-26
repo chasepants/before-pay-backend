@@ -27,7 +27,7 @@ app.post('/webhook', async (req, res) => {
 app.use(cors({
   origin: process.env.REACT_APP_URL,
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT'],
+  methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 

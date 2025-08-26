@@ -26,6 +26,7 @@ const googleProductSchema = new Schema({
   badge: { type: String },
   tag: { type: String },
   delivery: { type: String },
+  description: { type: String }
 });
 
 const scheduleSchema = new Schema({
@@ -53,7 +54,8 @@ const savingsGoalSchema = new mongoose.Schema({
   schedule: scheduleSchema,
   bank: bankSchema,
   plaidToken: String,
-  transfers: [transferSchema]
+  transfers: [transferSchema],
+  isPaused: { type: Boolean, default: false }
 });
 
 module.exports = mongoose.model('SavingsGoal', savingsGoalSchema);

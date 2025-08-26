@@ -45,6 +45,7 @@ async function simulateDailyPayments(simulationDate) {
   console.log(`Day of week index: ${date.getDay()}`);
   
   const savingsGoals = await SavingsGoal.find({
+    isPaused: { $ne: true },
     $or: [
       { "schedule.dayOfMonth": dayOfTheMonth },
       { "schedule.dayOfWeek": dayOfTheWeek }
