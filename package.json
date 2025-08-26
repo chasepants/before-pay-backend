@@ -20,7 +20,8 @@
     "multer": "^2.0.1",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
-    "plaid": "^35.0.0"
+    "plaid": "^35.0.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

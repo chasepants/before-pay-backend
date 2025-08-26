@@ -76,18 +76,44 @@ async function handlePaymentCanceled(eventData) {
 }
 
 async function handleTransactionCreated(eventData) {
-  // Mark completed and move amount into currentAmount when the transaction is created
+  const tags = eventData.attributes?.tags || {};
+  const kind = tags.kind;
+  if (kind === 'transferBackBatch') {
+    const batchId = tags.batchId;
+    if (!batchId) return;
+
+    // Find all goals that have pending credit transfers for this batch
+    const goals = await SavingsGoal.find({ 'transfers.batchId': batchId });
+    for (const goal of goals) {
+      let changed = false;
+      for (const t of goal.transfers) {
+        if (t.batchId === batchId && t.type === 'credit' && t.status !== 'completed') {
+          t.status = 'completed';
+          goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - t.amount);
+          changed = true;
+        }
+      }
+      if (changed) await goal.save();
+    }
+    console.log(`transaction.created → completed batch ${batchId}`);
+    return;
+  }
+
+  // existing single-payment flow fallback (for normal debits)
   const paymentId = eventData.relationships?.payment?.data?.id;
   if (!paymentId) return;
-  const goal = await findGoalByPaymentId(paymentId);
+  const goal = await SavingsGoal.findOne({ 'transfers.transferId': paymentId });
   if (!goal) return;
-
   const idx = goal.transfers.findIndex(t => t.transferId === paymentId);
   if (idx === -1) return;
-
   if (goal.transfers[idx].status !== 'completed') {
     goal.transfers[idx].status = 'completed';
-    goal.currentAmount += goal.transfers[idx].amount;
+    const amt = goal.transfers[idx].amount;
+    if (goal.transfers[idx].type === 'debit') {
+      goal.currentAmount += amt;
+    } else if (goal.transfers[idx].type === 'credit') {
+      goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - amt);
+    }
     await goal.save();
     console.log(`transaction.created → completed for transfer ${paymentId} (goal ${goal._id})`);
   }

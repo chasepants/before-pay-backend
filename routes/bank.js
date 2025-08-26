@@ -11,6 +11,7 @@ const {
 require('dotenv').config();
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const { v4: uuid } = require('uuid');
 
 const ensureAuthenticated = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -230,6 +231,75 @@ router.post('/payout', ensureAuthenticated, async (req, res) => {
     res.json({ success: true, transferId });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/transfer-back-batch', ensureAuthenticated, async (req, res) => {
+  try {
+    const { totalAmount, allocations } = req.body; // allocations: [{ savingsGoalId, amount }]
+    const total = Math.round(Number(totalAmount || 0));
+    if (!total || total <= 0) return res.status(400).json({ error: 'Invalid totalAmount' });
+    if (!Array.isArray(allocations) || allocations.length === 0) {
+      return res.status(400).json({ error: 'No allocations provided' });
+    }
+
+    const goals = await SavingsGoal.find({ _id: { $in: allocations.map(a => a.savingsGoalId) }, userId: req.user._id });
+    const goalsById = new Map(goals.map(g => [String(g._id), g]));
+    const sumAlloc = allocations.reduce((s, a) => s + Math.round(Number(a.amount || 0)), 0);
+    if (sumAlloc !== total) return res.status(400).json({ error: 'Allocations must sum to totalAmount' });
+
+    // Validate per-goal limits
+    for (const a of allocations) {
+      const g = goalsById.get(a.savingsGoalId);
+      if (!g) return res.status(400).json({ error: 'Goal not found: ' + a.savingsGoalId });
+      const amt = Math.round(Number(a.amount || 0));
+      if (amt < 0 || amt > Math.round(Number(g.currentAmount || 0))) {
+        return res.status(400).json({ error: `Invalid allocation for goal ${a.savingsGoalId}` });
+      }
+    }
+
+    // Choose destination bank (plaid token) – use first goal that has one, or require client param
+    const destPlaidToken = goals.find(g => !!g.plaidToken)?.plaidToken;
+    if (!destPlaidToken) return res.status(400).json({ error: 'No destination bank found for transfer back' });
+    if (!req.user.unitAccountId) return res.status(400).json({ error: 'No Unit account on user' });
+
+    const batchId = uuid();
+
+    // Create single ACH payment (Credit from Unit to user bank)
+    const ach = await unit.payments.create({
+      type: 'achPayment',
+      attributes: {
+        amount: total * 100,
+        direction: 'Credit',
+        description: 'Transfer Back',
+        plaidProcessorToken: destPlaidToken,
+        tags: { kind: 'transferBackBatch', batchId }
+      },
+      relationships: {
+        account: { data: { type: 'account', id: req.user.unitAccountId } }
+      }
+    });
+
+    // Record pending allocation entries across goals (link by batchId + same paymentId)
+    const paymentId = ach.data.id;
+    const now = new Date();
+    for (const a of allocations) {
+      const g = goalsById.get(a.savingsGoalId);
+      g.transfers.push({
+        transferId: paymentId,
+        batchId,
+        amount: Number(a.amount),
+        date: now,
+        status: 'pending',
+        type: 'credit'
+      });
+      await g.save();
+    }
+
+    return res.json({ paymentId, batchId, processed: allocations.length });
+  } catch (e) {
+    console.error('transfer-back-batch error:', e);
+    return res.status(500).json({ error: 'Failed to process transfer back' });
   }
 });
 
