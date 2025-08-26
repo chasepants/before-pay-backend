@@ -78,6 +78,7 @@ async function handlePaymentCanceled(eventData) {
 async function handleTransactionCreated(eventData) {
   const tags = eventData.attributes?.tags || {};
   const kind = tags.kind;
+  
   if (kind === 'transferBackBatch') {
     const batchId = tags.batchId;
     if (!batchId) return;
@@ -86,14 +87,18 @@ async function handleTransactionCreated(eventData) {
     const goals = await SavingsGoal.find({ 'transfers.batchId': batchId });
     for (const goal of goals) {
       let changed = false;
-      for (const t of goal.transfers) {
-        if (t.batchId === batchId && t.type === 'credit' && t.status !== 'completed') {
-          t.status = 'completed';
-          goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - t.amount);
+      for (let i = 0; i < goal.transfers.length; i++) {
+        const transfer = goal.transfers[i];
+        if (transfer.batchId === batchId && transfer.type === 'credit' && transfer.status !== 'completed') {
+          goal.transfers[i].status = 'completed';  // Use array index
+          goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - transfer.amount);
           changed = true;
         }
       }
-      if (changed) await goal.save();
+      if (changed) {
+        goal.markModified('transfers');  // Tell Mongoose the transfers array changed
+        await goal.save();
+      }
     }
     console.log(`transaction.created → completed batch ${batchId}`);
     return;
