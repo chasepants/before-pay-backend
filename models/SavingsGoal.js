@@ -2,12 +2,13 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const transferSchema = new Schema({
-  transferId: { type: String },       // Unit payment ID (can be shared across many allocations in batch)
-  batchId: { type: String },          // NEW: local reconciliation group
+  transferId: { type: String },       // Unit payment ID
+  transactionId: { type: String },    // Unit transaction ID
+  batchId: { type: String },          // For batch transfers
   amount: { type: Number, required: true },
   date: { type: Date, required: true },
-  status: { type: String, required: true }, // pending/completed/failed/canceled
-  type: { type: String, required: true },   // debit (save) or credit (transfer back)
+  status: { type: String, required: true },
+  type: { type: String, required: true },
 });
 
 const googleProductSchema = new Schema({
@@ -58,7 +59,5 @@ const savingsGoalSchema = new mongoose.Schema({
   transfers: [transferSchema],
   isPaused: { type: Boolean, default: false }
 });
-
-module.exports = mongoose.model('SavingsGoal', savingsGoalSchema);
 
 module.exports = mongoose.model('SavingsGoal', savingsGoalSchema);
