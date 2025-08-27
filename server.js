@@ -9,6 +9,7 @@ const savingsGoalRoutes = require('./routes/savingsGoal');
 const bankRoutes = require('./routes/bank');
 const webhook = require('./webhooks/index');
 const { processScheduledPayments } = require('./cron/process-payments');
+const launchRoutes = require('./routes/launch');
 const app = express();
 
 app.use(express.json());
@@ -36,6 +37,7 @@ app.use(passport.initialize());
 app.use('/api/auth', authRoutes);
 app.use('/api/savings-goal', savingsGoalRoutes);
 app.use('/api/bank', bankRoutes);
+app.use('/api/launch', launchRoutes);
 
 app.get('/test', (req, res) => {
   res.json({ message: 'Server is running' });
