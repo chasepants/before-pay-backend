@@ -93,24 +93,29 @@ async function handleTransactionCreated(eventData) {
     for (const goal of goals) {
       for (let i = 0; i < goal.transfers.length; i++) {
         const transfer = goal.transfers[i];
-        if (transfer.batchId === batchId && transfer.type === 'credit' && transfer.status !== 'completed') {
-          console.log(`Updating transfer ${transfer._id} in goal ${goal._id}`);
-          goal.transfers[i].status = 'completed';
-          goal.transfers[i].transactionId = transactionId;
-          goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - transfer.amount);
-          
-          SavingsGoal.findOneAndUpdate(
-            {_id: new mongoose.Types.ObjectId(goal._id)},
-            { $set: { "transfers.$[elem].transactionId": transactionId } }, 
-            { 
-              arrayFilters: [{ 
-                "elem._id": new mongoose.Types.ObjectId(transfer._id),
-              }], 
-            }
-          )
-
-          console.log(`Saved goal ${goal._id} with updated transfers`);
+        if (!(transfer.batchId === batchId && transfer.type === 'credit' && transfer.status !== 'completed')) {
+          continue;
         }
+
+        console.log(`Updating transfer ${transfer._id} in goal ${goal._id}`);
+        goal.transfers[i].status = 'completed';
+        goal.transfers[i].transactionId = transactionId;
+        goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - transfer.amount);
+        
+        SavingsGoal.findOneAndUpdate(
+          {_id: new mongoose.Types.ObjectId(goal._id)},
+          { $set: { "transfers.$[elem].transactionId": transactionId } }, 
+          { 
+            arrayFilters: [{ 
+              "elem._id": new mongoose.Types.ObjectId(transfer._id),
+            }], 
+          }
+        ).exec((err, docs) => {
+          console.log(err);
+          console.log(docs)
+        });
+
+        console.log(`Saved goal ${goal._id} with updated transfers`);
       }
     }
     
