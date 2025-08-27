@@ -100,6 +100,26 @@ async function handleTransactionCreated(eventData) {
 
         console.log(`Updating transfer ${transfer._id} in goal ${goal._id}`);
         
+        const result_transaction_id = await SavingsGoal.findOneAndUpdate(
+          { 
+            _id: goal._id,
+            'transfers._id': transfer._id 
+          },
+          { 
+            $set: { 
+              'transfers.$.transactionId': transactionId,
+            }
+          },
+          { new: true }
+        );
+        
+        
+        if (result_transaction_id) {
+          console.log(`Successfully updated transfer ${transfer._id} transaction id in goal ${goal._id}`);
+        } else {
+          console.log(`Failed to update transfer ${transfer._id} transaction id in goal ${goal._id}`);
+        }
+
         // Use findOneAndUpdate to update the specific transfer
         const result = await SavingsGoal.findOneAndUpdate(
           { 
@@ -109,17 +129,16 @@ async function handleTransactionCreated(eventData) {
           { 
             $set: { 
               'transfers.$.status': 'completed',
-              'transfers.$.transactionId': transactionId
             },
             $inc: { currentAmount: -transfer.amount }
           },
           { new: true }
         );
-        
+
         if (result) {
-          console.log(`Successfully updated transfer ${transfer._id} in goal ${goal._id}`);
+          console.log(`Successfully updated transfer ${transfer._id} status in goal ${goal._id}`);
         } else {
-          console.log(`Failed to update transfer ${transfer._id} in goal ${goal._id}`);
+          console.log(`Failed to update transfer ${transfer._id} status in goal ${goal._id}`);
         }
       }
     }
