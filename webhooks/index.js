@@ -92,6 +92,7 @@ async function handleTransactionCreated(eventData) {
     console.log(`Found ${goals.length} goals for batch ${batchId}`);
     
     for (const goal of goals) {
+      let changed = false;
       for (let i = 0; i < goal.transfers.length; i++) {
         const transfer = goal.transfers[i];
         if (!(transfer.batchId === batchId && transfer.type === 'credit' && transfer.status !== 'completed')) {
@@ -99,25 +100,27 @@ async function handleTransactionCreated(eventData) {
         }
 
         console.log(`Updating transfer ${transfer._id} in goal ${goal._id}`);
+        console.log('Transfer details:', { 
+          _id: transfer._id, 
+          batchId: transfer.batchId, 
+          type: transfer.type, 
+          status: transfer.status 
+        });
         
-        // Update the transfer and currentAmount in one operation
-        await SavingsGoal.updateOne(
-          { _id: goal._id },
-          { 
-            $set: { 
-              "transfers.$[elem].transactionId": transactionId,
-              "transfers.$[elem].status": "completed"
-            },
-            $inc: { currentAmount: -transfer.amount }
-          }, 
-          { 
-            arrayFilters: [{ 
-              "elem._id": transfer._id
-            }] 
-          }
-        );
-
-        console.log(`Updated goal ${goal._id} transfer ${transfer._id}`);
+        // Update the transfer directly on the goal object
+        goal.transfers[i].status = 'completed';
+        goal.transfers[i].transactionId = transactionId;
+        goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - transfer.amount);
+        changed = true;
+        
+        console.log(`Updated transfer ${transfer._id} - new status: ${goal.transfers[i].status}, new transactionId: ${goal.transfers[i].transactionId}`);
+      }
+      
+      if (changed) {
+        // Mark the transfers array as modified and save
+        goal.markModified('transfers');
+        await goal.save();
+        console.log(`Saved goal ${goal._id} with updated transfers`);
       }
     }
     
