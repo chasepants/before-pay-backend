@@ -2,6 +2,7 @@ const SavingsGoal = require('../models/SavingsGoal');
 const User = require('../models/User');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
+const mongoose = require('mongoose');
 
 async function findGoalByPaymentId(paymentId) {
   if (!paymentId) return null;
