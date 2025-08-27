@@ -52,12 +52,19 @@ const savingsGoalSchema = new mongoose.Schema({
   targetAmount: { type: Number, required: true },
   currentAmount: { type: Number, default: 0 },
   savingsAmount: Number,
+  category: { type: String, enum: ['product', 'trip', 'donation', 'education', 'home', 'other'], default: 'other' },
   product: { type: googleProductSchema, required: false },
   schedule: scheduleSchema,
   bank: bankSchema,
   plaidToken: String,
   transfers: [transferSchema],
-  isPaused: { type: Boolean, default: false }
+  isPaused: { type: Boolean, default: false },
+  aiGeneratedImage: String,
+  aiInsights: [{             // KEEP this - it's used for AI description enhancement
+    type: String,
+    content: String,
+    createdAt: { type: Date, default: Date.now }
+  }]
 });
 
 module.exports = mongoose.model('SavingsGoal', savingsGoalSchema);
