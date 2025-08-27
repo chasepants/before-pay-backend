@@ -111,10 +111,7 @@ async function handleTransactionCreated(eventData) {
               "elem._id": new mongoose.Types.ObjectId(transfer._id),
             }], 
           }
-        ).exec((err, docs) => {
-          console.log(err);
-          console.log(docs)
-        });
+        ).exec();
 
         console.log(`Saved goal ${goal._id} with updated transfers`);
       }
