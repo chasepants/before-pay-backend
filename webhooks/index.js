@@ -78,7 +78,7 @@ async function handlePaymentCanceled(eventData) {
 async function handleTransactionCreated(eventData) {
   const tags = eventData.attributes?.tags || {};
   const kind = tags.kind;
-  const transactionId = eventData.id; // This is the transaction ID
+  const transactionId = eventData.relationships.transaction.id; // This is the transaction ID
   
   if (kind === 'transferBackBatch') {
     const batchId = tags.batchId;
