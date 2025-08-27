@@ -80,21 +80,39 @@ async function handleTransactionCreated(eventData) {
   const kind = tags.kind;
   const transactionId = eventData.relationships?.transaction?.data?.id;
   
+  console.log('Transaction created webhook:', { kind, transactionId, eventData: JSON.stringify(eventData, null, 2) });
+  
   if (kind === 'transferBackBatch') {
     const batchId = tags.batchId;
     if (!batchId) return;
 
-    // Update all transfers in the batch using positional operator
-    await SavingsGoal.updateMany(
-      { 'transfers.batchId': batchId, 'transfers.type': 'credit', 'transfers.status': { $ne: 'completed' } },
-      { 
-        $set: { 
-          'transfers.$.status': 'completed',
-          'transfers.$.transactionId': transactionId
-        },
-        $inc: { currentAmount: { $multiply: ['$transfers.$.amount', -1] } }
+    // Find all goals that have pending credit transfers for this batch
+    const goals = await SavingsGoal.find({ 'transfers.batchId': batchId });
+    console.log(`Found ${goals.length} goals for batch ${batchId}`);
+    
+    for (const goal of goals) {
+      for (let i = 0; i < goal.transfers.length; i++) {
+        const transfer = goal.transfers[i];
+        if (transfer.batchId === batchId && transfer.type === 'credit' && transfer.status !== 'completed') {
+          console.log(`Updating transfer ${transfer._id} in goal ${goal._id}`);
+          goal.transfers[i].status = 'completed';
+          goal.transfers[i].transactionId = transactionId;
+          goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - transfer.amount);
+          
+          SavingsGoal.findOneAndUpdate(
+            {_id: new mongoose.Types.ObjectId(goal._id)},
+            { $set: { "transfers.$[elem].transactionId": transactionId } }, 
+            { 
+              arrayFilters: [{ 
+                "elem._id": new mongoose.Types.ObjectId(transfer._id),
+              }], 
+            }
+          )
+
+          console.log(`Saved goal ${goal._id} with updated transfers`);
+        }
       }
-    );
+    }
     
     console.log(`transaction.created → completed batch ${batchId}, transactionId: ${transactionId}`);
     return;
@@ -104,23 +122,31 @@ async function handleTransactionCreated(eventData) {
   const paymentId = eventData.relationships?.payment?.data?.id;
   if (!paymentId) return;
   
-  // Update single transfer using positional operator
-  await SavingsGoal.updateOne(
-    { 'transfers.transferId': paymentId, 'transfers.status': { $ne: 'completed' } },
-    { 
-      $set: { 
-        'transfers.$.status': 'completed',
-        'transfers.$.transactionId': transactionId
-      },
-      $inc: { 
-        currentAmount: eventData.attributes?.direction === 'Credit' ? 
-          { $multiply: ['$transfers.$.amount', -1] } : 
-          '$transfers.$.amount'
-      }
-    }
-  );
+  const goal = await SavingsGoal.findOne({ 'transfers.transferId': paymentId });
+  if (!goal) {
+    console.log(`No goal found for payment ${paymentId}`);
+    return;
+  }
   
-  console.log(`transaction.created → completed for transfer ${paymentId}, transactionId: ${transactionId}`);
+  const idx = goal.transfers.findIndex(t => t.transferId === paymentId);
+  if (idx === -1) {
+    console.log(`No transfer found for payment ${paymentId} in goal ${goal._id}`);
+    return;
+  }
+  
+  if (goal.transfers[idx].status !== 'completed') {
+    console.log(`Updating transfer ${goal.transfers[idx]._id} in goal ${goal._id}`);
+    goal.transfers[idx].status = 'completed';
+    goal.transfers[idx].transactionId = transactionId;
+    const amt = goal.transfers[idx].amount;
+    if (goal.transfers[idx].type === 'debit') {
+      goal.currentAmount += amt;
+    } else if (goal.transfers[idx].type === 'credit') {
+      goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - amt);
+    }
+    await goal.save();
+    console.log(`transaction.created → completed for transfer ${paymentId}, transactionId: ${transactionId}`);
+  }
 }
 
 async function handleApplicationApproved(eventData) {
@@ -286,6 +312,8 @@ const webhook = async (req, res) => {
       default:
         console.log('unrecognized event', eventData.type);
     }
+  }
+  res.status(200).json({ received: true });
   }
   res.status(200).json({ received: true });
 };
