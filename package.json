@@ -18,6 +18,7 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.1",
+    "openai": "^5.16.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "plaid": "^35.0.0",
