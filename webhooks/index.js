@@ -81,7 +81,7 @@ async function handleTransactionCreated(eventData) {
   const kind = tags.kind;
   const transactionId = eventData.relationships?.transaction?.data?.id;
   
-  console.log('Transaction created webhook:', { kind, transactionId, eventData: JSON.stringify(eventData, null, 2) });
+  console.log('Transaction created webhook:', { kind, transactionId });
   
   if (kind === 'transferBackBatch') {
     const batchId = tags.batchId;
@@ -99,21 +99,25 @@ async function handleTransactionCreated(eventData) {
         }
 
         console.log(`Updating transfer ${transfer._id} in goal ${goal._id}`);
-        goal.transfers[i].status = 'completed';
-        goal.transfers[i].transactionId = transactionId;
-        goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - transfer.amount);
         
-        SavingsGoal.findOneAndUpdate(
-          {_id: new mongoose.Types.ObjectId(goal._id)},
-          { $set: { "transfers.$[elem].transactionId": transactionId } }, 
+        // Update the transfer and currentAmount in one operation
+        await SavingsGoal.updateOne(
+          { _id: goal._id },
+          { 
+            $set: { 
+              "transfers.$[elem].transactionId": transactionId,
+              "transfers.$[elem].status": "completed"
+            },
+            $inc: { currentAmount: -transfer.amount }
+          }, 
           { 
             arrayFilters: [{ 
-              "elem._id": new mongoose.Types.ObjectId(transfer._id),
-            }], 
+              "elem._id": transfer._id
+            }] 
           }
-        ).exec();
+        );
 
-        console.log(`Saved goal ${goal._id} with updated transfers`);
+        console.log(`Updated goal ${goal._id} transfer ${transfer._id}`);
       }
     }
     
