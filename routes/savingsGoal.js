@@ -5,6 +5,7 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { OpenAI } = require('openai');
+require('dotenv').config();
 
 // Initialize xAI client
 const xai = new OpenAI({
