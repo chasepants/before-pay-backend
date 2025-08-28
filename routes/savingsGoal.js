@@ -7,15 +7,16 @@ const axios = require('axios');
 const { OpenAI } = require('openai');
 require('dotenv').config();
 
-// Initialize xAI client
+// Initialize xAI client - fix the scope issue
+let xai;
 try {
-  const xai = new OpenAI({
+  xai = new OpenAI({
     apiKey: process.env.XAI_API_KEY,
     baseURL: "https://api.x.ai/v1",
   });
 } catch (error) {
   console.error('xAI API key error:', error);
-  console.log(process.env.XAI_API_KEY);
+  console.log('XAI_API_KEY:', process.env.XAI_API_KEY);
 }
 
 const ensureAuthenticated = async (req, res, next) => {

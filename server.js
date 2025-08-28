@@ -25,7 +25,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Update the CORS configuration to allow your custom domains
 app.use(cors({
   origin: [
     process.env.REACT_APP_URL, // Keep your existing localhost URL
