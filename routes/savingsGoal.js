@@ -8,10 +8,15 @@ const { OpenAI } = require('openai');
 require('dotenv').config();
 
 // Initialize xAI client
-const xai = new OpenAI({
-  apiKey: process.env.XAI_API_KEY,
-  baseURL: "https://api.x.ai/v1",
-});
+try {
+  const xai = new OpenAI({
+    apiKey: process.env.XAI_API_KEY,
+    baseURL: "https://api.x.ai/v1",
+  });
+} catch (error) {
+  console.error('xAI API key error:', error);
+  console.log(process.env.XAI_API_KEY);
+}
 
 const ensureAuthenticated = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
