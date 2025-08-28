@@ -25,8 +25,15 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// Update the CORS configuration to allow your custom domains
 app.use(cors({
-  origin: process.env.REACT_APP_URL,
+  origin: [
+    process.env.REACT_APP_URL, // Keep your existing localhost URL
+    'https://gostashpay.com',
+    'https://sandbox.gostashpay.com',
+    'http://localhost:3000', // Keep for local development
+    'http://localhost:3001'  // Keep for local development
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
