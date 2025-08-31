@@ -6,18 +6,7 @@ const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { OpenAI } = require('openai');
 require('dotenv').config();
-
-// Initialize xAI client - fix the scope issue
-let xai;
-try {
-  xai = new OpenAI({
-    apiKey: process.env.XAI_API_KEY,
-    baseURL: "https://api.x.ai/v1",
-  });
-} catch (error) {
-  console.error('xAI API key error:', error);
-  console.log('XAI_API_KEY:', process.env.XAI_API_KEY);
-}
+const { generateImage, enhanceDescription } = require('../services/xaiService');
 
 const ensureAuthenticated = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -170,23 +159,23 @@ router.patch('/:id/pause', ensureAuthenticated, async (req, res) => {
 
 router.post('/:id/generate-image', ensureAuthenticated, async (req, res) => {
   try {
-    const { id } = req.params;
     const { prompt } = req.body;
     
-    const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
-    if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
+    if (!prompt || prompt.trim() === '') {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
 
-    // Use xAI's image generation with only supported parameters
-    const response = await xai.images.generate({
-      model: "grok-2-image",
-      prompt: prompt || `Create a profile icon for a savings goal: ${goal.goalName}. ${goal.product?.description || ''}`,
-      n: 1
-      // Removed 'size' parameter as it's not supported by grok-2-image
+    const goal = await SavingsGoal.findOne({ 
+      _id: req.params.id, 
+      userId: req.user._id 
     });
 
-    const imageUrl = response.data[0].url;
+    if (!goal) {
+      return res.status(404).json({ error: 'Savings goal not found' });
+    }
+
+    const imageUrl = await generateImage(prompt);
     
-    // Save the generated image URL
     goal.aiGeneratedImage = imageUrl;
     await goal.save();
 
@@ -200,129 +189,37 @@ router.post('/:id/generate-image', ensureAuthenticated, async (req, res) => {
 // Fix the ai-insights endpoint with better debugging and error handling
 router.post('/:id/ai-insights', ensureAuthenticated, async (req, res) => {
   try {
-    const { id } = req.params;
-    const { insightType, prompt } = req.body;
+    const { type, prompt } = req.body;
     
-    const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
-    if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
+    if (!type || !prompt) {
+      return res.status(400).json({ error: 'Type and prompt are required' });
+    }
 
-    console.log('Current goal aiInsights:', goal.aiInsights);
-    console.log('aiInsights type:', typeof goal.aiInsights);
-    console.log(`My description for my savings goal ${goal.goalName} is ${goal.product?.description || goal.description || ''}.`);
+    const goal = await SavingsGoal.findOne({ 
+      _id: req.params.id, 
+      userId: req.user._id 
+    });
 
-    // Try a different approach with Grok-4 or fallback to a simpler model
-    if (insightType === 'description-enhancement') {
-      try {
-        // First try with Grok-4 but with different parameters
-        let response;
-        try {
-          response = await xai.chat.completions.create({
-            model: "grok-4",
-            messages: [
-              {
-                role: "system",
-                content: "You are a helpful assistant. Make the given description 1-2 sentences longer. Only output the elongated description."
-              },
-              {
-                role: "user", 
-                content: `My description for my savings goal ${goal.goalName} is ${goal.product?.description || goal.description || ''}.`
-              }
-            ],
-            max_tokens: 1000, // Much higher to ensure we get output
-            temperature: 0.3, // Lower temperature for more focused responses
-            top_p: 1.0,
-            // Remove frequency and presence penalties that might interfere
-          });
-        } catch (grokError) {
-          console.log('Grok-4 failed, trying with different approach:', grokError.message);
-          // Fallback: try with a simpler prompt structure
-          response = await xai.chat.completions.create({
-            model: "grok-4",
-            messages: [
-              {
-                role: "user", 
-                content: `Please make this description longer by 1-2 sentences: "${goal.product?.description || goal.description || ''}". This is for a savings goal called "${goal.goalName}". Just give me the longer description, nothing else.`
-              }
-            ],
-            max_tokens: 1000,
-            temperature: 0.1, // Very low temperature for consistent output
-          });
-        }
+    if (!goal) {
+      return res.status(404).json({ error: 'Savings goal not found' });
+    }
 
-        console.log('xAI Response:', response);
-        console.log('Message object:', response.choices[0]?.message);
-        console.log('Content:', response.choices[0]?.message?.content);
-        
-        const enhancedDescription = response.choices[0]?.message?.content?.trim();
-        
-        if (!enhancedDescription) {
-          // If still no content, try one more approach with minimal tokens
-          console.log('Still no content, trying minimal approach...');
-          const minimalResponse = await xai.chat.completions.create({
-            model: "grok-4",
-            messages: [
-              {
-                role: "user", 
-                content: `Extend this description: "${goal.product?.description || goal.description || ''}"`
-              }
-            ],
-            max_tokens: 200,
-            temperature: 0.0, // Deterministic output
-          });
-          
-          const minimalContent = minimalResponse.choices[0]?.message?.content?.trim();
-          if (minimalContent) {
-            console.log('Minimal approach worked:', minimalContent);
-            goal.description = minimalContent;
-            await goal.save();
-            res.json({ insight: minimalContent, type: insightType });
-            return;
-          }
-          
-          throw new Error('All xAI approaches failed to generate content');
-        }
-        
-        console.log('Enhanced description from xAI:', enhancedDescription);
-        
-        // Update the goal description directly
-        goal.description = enhancedDescription;
-        
-        // Save the updated goal
-        try {
-          await goal.save();
-          console.log('Successfully saved goal with enhanced description');
-        } catch (saveError) {
-          console.error('Save error:', saveError);
-          throw saveError;
-        }
-
-        res.json({ insight: enhancedDescription, type: insightType });
-      } catch (xaiError) {
-        console.error('xAI chat API error:', xaiError.response?.data || xaiError.message);
-        res.status(500).json({ error: 'Failed to generate enhanced description with AI' });
-      }
+    if (type === 'description-enhancement') {
+      const enhancedDescription = await enhanceDescription(prompt);
+      goal.description = enhancedDescription;
+      await goal.save();
+      
+      res.json({ 
+        message: 'Description enhanced successfully', 
+        enhancedDescription,
+        goal 
+      });
     } else {
-      // For other insight types, keep the existing hardcoded responses
-      let insight;
-      switch (insightType) {
-        case 'web-search':
-          insight = `I can search the web for deals on ${goal.goalName}. Would you like me to look for current prices, discounts, or similar products?`;
-          break;
-        case 'trip-planning':
-          insight = `For your ${goal.goalName} trip, I can help with itinerary planning, budget breakdown, and travel tips. What would you like to know?`;
-          break;
-        case 'savings-tips':
-          insight = `Here are some tips to reach your ${goal.goalName} goal faster: 1) Set up automatic transfers, 2) Look for side income opportunities, 3) Cut unnecessary expenses.`;
-          break;
-        default:
-          insight = `I can help you with your ${goal.goalName} goal in several ways. What would you like assistance with?`;
-      }
-
-      res.json({ insight, type: insightType });
+      res.status(400).json({ error: 'Invalid insight type' });
     }
   } catch (error) {
-    console.error('AI insights error:', error);
-    res.status(500).json({ error: 'Failed to generate insights' });
+    console.error('xAI API error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to generate AI insights' });
   }
 });
 

@@ -65,6 +65,8 @@ const savingsGoalSchema = new mongoose.Schema({
     content: String,
     createdAt: { type: Date, default: Date.now }
   }]
+}, {
+  timestamps: true  // This automatically adds createdAt and updatedAt fields
 });
 
 module.exports = mongoose.model('SavingsGoal', savingsGoalSchema);
