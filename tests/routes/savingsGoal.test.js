@@ -5,24 +5,30 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const jwt = require('jsonwebtoken');
 
 // Import the router and models
-const savingsGoalRouter = require('../routes/savingsGoal');
-const User = require('../models/User');
-const SavingsGoal = require('../models/SavingsGoal');
-const { generateImage, enhanceDescription } = require('../services/xaiService');
-
-// Create Express app for testing
-const app = express();
-app.use(express.json());
-app.use('/api/savings-goal', savingsGoalRouter);
+const savingsGoalRouter = require('../../routes/savingsGoal');
+const User = require('../../models/User');
+const SavingsGoal = require('../../models/SavingsGoal');
+const { generateImage, enhanceDescription } = require('../../services/xaiService');
+const { searchProducts } = require('../../services/webSearchService');
 
 // At the very top of the test file, before any other code
-jest.mock('../services/xaiService', () => ({
+jest.mock('../../services/xaiService', () => ({
   generateImage: jest.fn(),
   enhanceDescription: jest.fn()
 }));
 
 // Now import the mocked functions
-const xaiService = require('../services/xaiService');
+const xaiService = require('../../services/xaiService');
+
+// At the top of the test file, add the web search service mock
+jest.mock('../../services/webSearchService');
+
+const webSearchService = require('../../services/webSearchService');
+
+// Create Express app for testing
+const app = express();
+app.use(express.json());
+app.use('/api/savings-goal', savingsGoalRouter);
 
 describe('SavingsGoal Routes', () => {
   let mongoServer;
@@ -1665,6 +1671,379 @@ describe('SavingsGoal Routes', () => {
 
       expect(response.body.error).toBe('Failed to generate AI insights');
       expect(xaiService.enhanceDescription).toHaveBeenCalledWith('Enhance this description');
+    });
+  });
+
+  describe('POST /:id/web-search', () => {
+    beforeEach(() => {
+      // Reset all mocks before each test
+      jest.clearAllMocks();
+    });
+
+    it('should return 401 when no token is provided', async () => {
+      const response = await request(app)
+        .post('/api/savings-goal/507f1f77bcf86cd799439011/web-search')
+        .send({ query: 'vacation package' })
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized: No token provided');
+    });
+
+    it('should return 401 when invalid token is provided', async () => {
+      const response = await request(app)
+        .post('/api/savings-goal/507f1f77bcf86cd799439011/web-search')
+        .set('Authorization', 'Bearer invalid-token')
+        .send({ query: 'vacation package' })
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized: Invalid token');
+    });
+
+    it('should return 401 when user is not found', async () => {
+      // Create a token for a non-existent user
+      const nonExistentUserId = new mongoose.Types.ObjectId();
+      const invalidToken = jwt.sign(
+        { userId: nonExistentUserId.toString() },
+        process.env.JWT_SECRET || 'test-secret',
+        { expiresIn: '1h' }
+      );
+
+      const response = await request(app)
+        .post('/api/savings-goal/507f1f77bcf86cd799439011/web-search')
+        .set('Authorization', `Bearer ${invalidToken}`)
+        .send({ query: 'vacation package' })
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized: User not found');
+    });
+
+    it('should return 404 when savings goal does not exist', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId();
+      const response = await request(app)
+        .post(`/api/savings-goal/${nonExistentId}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ query: 'vacation package' })
+        .expect(404);
+
+      expect(response.body.error).toBe('Savings goal not found');
+    });
+
+    it('should return 404 when savings goal exists but belongs to different user', async () => {
+      // Create another user
+      const otherUser = new User({
+        email: 'other@example.com',
+        firstName: 'Other',
+        lastName: 'User'
+      });
+      await otherUser.save();
+
+      // Create a savings goal for the other user
+      const otherGoal = new SavingsGoal({
+        userId: otherUser._id,
+        goalName: 'Other User Goal',
+        targetAmount: 1000,
+        currentAmount: 0
+      });
+      await otherGoal.save();
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${otherGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ query: 'vacation package' })
+        .expect(404);
+
+      expect(response.body.error).toBe('Savings goal not found');
+    });
+
+    it('should return 400 when savings goal has no product data', async () => {
+      // Create a test savings goal WITHOUT product data
+      const testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal for Search',
+        targetAmount: 1000,
+        currentAmount: 0
+        // No product field
+      });
+      await testGoal.save();
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ query: 'test query' })
+        .expect(400);
+
+      expect(response.body.error).toBe('Web search is only available for product-type savings goals');
+    });
+
+    it('should successfully perform web search when valid query is provided', async () => {
+      // Mock the web search service to return sample results
+      const mockSearchResults = [
+        {
+          title: 'Vacation Package Deal',
+          price: '$999',
+          thumbnail: 'https://example.com/vacation.jpg',
+          source: 'Travel Agency',
+          productLink: 'https://example.com/vacation-deal'
+        },
+        {
+          title: 'Luxury Vacation Bundle',
+          price: '$1499',
+          thumbnail: 'https://example.com/luxury.jpg',
+          source: 'Premium Travel',
+          productLink: 'https://example.com/luxury-bundle'
+        }
+      ];
+
+      webSearchService.searchProducts.mockResolvedValue({
+        success: true,
+        results: mockSearchResults,
+        query: 'vacation package deals',
+        totalResults: 2
+      });
+
+      // Create a test savings goal with complete product data (required for web search)
+      const testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Vacation Fund',
+        targetAmount: 2000,
+        currentAmount: 500,
+        product: {
+          productLink: 'https://example.com/product',
+          title: 'Vacation Package',
+          price: '1999',
+          source: 'Travel Agency',
+          thumbnail: 'https://example.com/thumbnail.jpg'
+        },
+        category: 'product'
+      });
+      await testGoal.save();
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ searchQuery: 'vacation package deals' })
+        .expect(200);
+
+      expect(response.body.results).toBeDefined();
+      expect(Array.isArray(response.body.results)).toBe(true);
+      expect(response.body.results.length).toBe(2);
+      expect(response.body.query).toBe('vacation package deals');
+      expect(response.body.goalId).toBe(testGoal._id.toString());
+      expect(webSearchService.searchProducts).toHaveBeenCalledWith('vacation package deals', 'product');
+    });
+
+    it('should handle web search with no results', async () => {
+      // Mock the web search service to return empty results
+      webSearchService.searchProducts.mockResolvedValue({
+        success: true,
+        results: [],
+        query: 'very rare obscure item',
+        totalResults: 0
+      });
+
+      // Create a test savings goal with complete product data (required for web search)
+      const testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Rare Item Fund',
+        targetAmount: 1000,
+        currentAmount: 0,
+        product: {
+          productLink: 'https://example.com/product',
+          title: 'Rare Item',
+          price: '999',
+          source: 'Rare Store',
+          thumbnail: 'https://example.com/thumbnail.jpg'
+        },
+        category: 'product'
+      });
+      await testGoal.save();
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ searchQuery: 'very rare obscure item' })
+        .expect(200);
+
+      expect(response.body.results).toBeDefined();
+      expect(Array.isArray(response.body.results)).toBe(true);
+      expect(response.body.results.length).toBe(0);
+      expect(response.body.query).toBe('very rare obscure item');
+      expect(response.body.goalId).toBe(testGoal._id.toString());
+      expect(webSearchService.searchProducts).toHaveBeenCalledWith('very rare obscure item', 'product');
+    });
+
+    it('should return 500 when web search service fails', async () => {
+      // Mock the web search service to throw an error
+      webSearchService.searchProducts.mockRejectedValue(new Error('Search service unavailable'));
+
+      // Create a test savings goal with complete product data (required for web search)
+      const testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal for Search',
+        targetAmount: 1000,
+        currentAmount: 0,
+        product: {
+          productLink: 'https://example.com/product',
+          title: 'Test Product',
+          price: '999',
+          source: 'Test Store',
+          thumbnail: 'https://example.com/thumbnail.jpg'
+        },
+        category: 'product'
+      });
+      await testGoal.save();
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ searchQuery: 'test query' })
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to perform web search');
+      expect(webSearchService.searchProducts).toHaveBeenCalledWith('test query', 'product');
+    });
+
+    it('should handle special characters in query', async () => {
+      // Mock the web search service to return results
+      webSearchService.searchProducts.mockResolvedValue({
+        success: true,
+        results: [
+          {
+            title: 'Special Characters Product',
+            price: '$99',
+            thumbnail: 'https://example.com/special.jpg',
+            source: 'Special Store',
+            productLink: 'https://example.com/special-product'
+          }
+        ],
+        query: 'vacation & travel deals (2024) - "best price"',
+        totalResults: 1
+      });
+
+      // Create a test savings goal with complete product data (required for web search)
+      const testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal for Search',
+        targetAmount: 1000,
+        currentAmount: 0,
+        product: {
+          productLink: 'https://example.com/product',
+          title: 'Test Product',
+          price: '999',
+          source: 'Test Store',
+          thumbnail: 'https://example.com/thumbnail.jpg'
+        },
+        category: 'product'
+      });
+      await testGoal.save();
+
+      const specialQuery = 'vacation & travel deals (2024) - "best price"';
+      
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ searchQuery: specialQuery })
+        .expect(200);
+
+      expect(response.body.query).toBe(specialQuery);
+      expect(response.body.goalId).toBe(testGoal._id.toString());
+      expect(webSearchService.searchProducts).toHaveBeenCalledWith(specialQuery, 'product');
+    });
+
+    it('should handle very long queries', async () => {
+      // Mock the web search service to return results
+      webSearchService.searchProducts.mockResolvedValue({
+        success: true,
+        results: [
+          {
+            title: 'Long Query Product',
+            price: '$99',
+            thumbnail: 'https://example.com/long.jpg',
+            source: 'Long Store',
+            productLink: 'https://example.com/long-product'
+          }
+        ],
+        query: 'a'.repeat(1000),
+        totalResults: 1
+      });
+
+      // Create a test savings goal with complete product data (required for web search)
+      const testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal for Search',
+        targetAmount: 1000,
+        currentAmount: 0,
+        product: {
+          productLink: 'https://example.com/product',
+          title: 'Test Product',
+          price: '999',
+          source: 'Test Store',
+          thumbnail: 'https://example.com/thumbnail.jpg'
+        },
+        category: 'product'
+      });
+      await testGoal.save();
+
+      const longQuery = 'a'.repeat(1000); // Very long query
+      
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ searchQuery: longQuery })
+        .expect(200);
+
+      expect(response.body.query).toBe(longQuery);
+      expect(response.body.goalId).toBe(testGoal._id.toString());
+      expect(webSearchService.searchProducts).toHaveBeenCalledWith(longQuery, 'product');
+    });
+
+    it('should preserve savings goal context in search results', async () => {
+      // Mock the web search service to return results
+      webSearchService.searchProducts.mockResolvedValue({
+        success: true,
+        results: [
+          {
+            title: 'Gaming Computer Parts',
+            price: '$299',
+            thumbnail: 'https://example.com/gaming-parts.jpg',
+            source: 'Gaming Store',
+            productLink: 'https://example.com/gaming-parts'
+          }
+        ],
+        query: 'gaming computer parts',
+        totalResults: 1
+      });
+
+      // Create a test savings goal with specific details and valid category
+      const testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Gaming Setup Fund',
+        targetAmount: 1500,
+        currentAmount: 300,
+        category: 'other', // Use valid category from schema
+        description: 'Save for a high-end gaming computer setup',
+        product: {
+          productLink: 'https://example.com/product',
+          title: 'Gaming Setup',
+          price: '1499',
+          source: 'Gaming Store',
+          thumbnail: 'https://example.com/thumbnail.jpg'
+        }
+      });
+      await testGoal.save();
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ searchQuery: 'gaming computer parts' })
+        .expect(200);
+
+      expect(response.body.goalId).toBe(testGoal._id.toString());
+      expect(response.body.goalName).toBe('Gaming Setup Fund');
+      expect(response.body.targetAmount).toBe(1500);
+      expect(response.body.currentAmount).toBe(300);
+      expect(response.body.category).toBe('other');
+      expect(webSearchService.searchProducts).toHaveBeenCalledWith('gaming computer parts', 'other');
     });
   });
 });

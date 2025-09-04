@@ -7,21 +7,8 @@ const axios = require('axios');
 const { OpenAI } = require('openai');
 require('dotenv').config();
 const { generateImage, enhanceDescription } = require('../services/xaiService');
-
-const ensureAuthenticated = async (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized: No token provided' });
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId);
-    if (!user) return res.status(401).json({ error: 'Unauthorized: User not found' });
-    req.user = user;
-    next();
-  } catch (err) {
-    console.error('Token verification error:', err);
-    res.status(401).json({ error: 'Unauthorized: Invalid token' });
-  }
-};
+const { searchProducts } = require('../services/webSearchService');
+const { ensureAuthenticated } = require('../middleware/auth');
 
 router.get('/', ensureAuthenticated, async (req, res) => {
   try {
@@ -225,44 +212,49 @@ router.post('/:id/ai-insights', ensureAuthenticated, async (req, res) => {
 
 router.post('/:id/web-search', ensureAuthenticated, async (req, res) => {
   try {
-    const { id } = req.params;
     const { searchQuery } = req.body;
     
-    const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
-    if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
+    // Check if the savings goal exists and belongs to the authenticated user
+    const goal = await SavingsGoal.findOne({ 
+      _id: req.params.id, 
+      userId: req.user._id 
+    });
 
-    // Only allow web search for product-type goals
-    if (goal.category !== 'product') {
-      return res.status(400).json({ error: 'Web search is only available for product-type savings goals' });
+    if (!goal) {
+      return res.status(404).json({ error: 'Savings goal not found' });
     }
 
-    // Use SerpAPI to search for products
-    const response = await axios.get('https://serpapi.com/search', {
-      params: { 
-        api_key: process.env.SERPAPI_KEY, 
-        engine: 'google_shopping', 
-        q: searchQuery || goal.goalName, 
-        num: 10 
-      }
-    });
-    response.data.shopping_results.forEach(item => {
-      console.log(item);
-    });
-    const products = response.data.shopping_results?.map(item => ({
-      title: item.title,
-      price: parseFloat(item.price?.replace(/[^0-9.]/g, '') || '0') || 0,
-      old_price: item.old_price,
-      thumbnail: item.thumbnail,
-      source: item.source,
-      productLink: item.product_link,
-      rating: item.rating,
-      reviews: item.reviews_count
-    })) || [];
+    // Check if the goal has product data (required for web search)
+    if (!goal.product || Object.keys(goal.product).length === 0) {
+      return res.status(400).json({ 
+        error: 'Web search is only available for product-type savings goals' 
+      });
+    }
 
-    res.json({ products, searchQuery: searchQuery || goal.goalName });
+    // Validate that searchQuery is provided
+    if (!searchQuery || searchQuery.trim() === '') {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
+    // Perform the web search using the service
+    const searchResults = await searchProducts(searchQuery, goal.category);
+
+    // Return the search results along with goal context
+    res.json({
+      results: searchResults.results,
+      query: searchQuery,
+      goalId: goal._id,
+      goalName: goal.goalName,
+      targetAmount: goal.targetAmount,
+      currentAmount: goal.currentAmount,
+      category: goal.category,
+      totalResults: searchResults.totalResults,
+      success: searchResults.success
+    });
+
   } catch (error) {
-    console.error('Web search error:', error.response?.data || error.message);
-    res.status(500).json({ error: 'Failed to search for products' });
+    console.error('Web search error:', error.message);
+    res.status(500).json({ error: 'Failed to perform web search' });
   }
 });
 

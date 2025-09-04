@@ -8,21 +8,7 @@ const axios = require('axios');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 require('dotenv').config();
-
-const ensureAuthenticated = async (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized: No token provided' });
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId);
-    if (!user) return res.status(401).json({ error: 'Unauthorized: User not found' });
-    req.user = user;
-    next();
-  } catch (err) {
-    console.error('Token verification error:', err);
-    res.status(401).json({ error: 'Unauthorized: Invalid token' });
-  }
-};
+const { ensureAuthenticated } = require('../middleware/auth');
 
 router.get('/google', (req, res, next) => {
   console.log('Initiating Google OAuth from:', req.get('Referer'));
@@ -199,46 +185,5 @@ router.get('/create-application-form', ensureAuthenticated, async (req, res) => 
   }
 });
 
-router.get('/documents', ensureAuthenticated, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-    if (!user || !user.unitApplicationId) return res.status(404).json({ error: 'Application not found' });
-    const response = await unit.applications.listDocuments(user.unitApplicationId);
-    res.json({ documents: response.data });
-  } catch (error) {
-    console.error('Error fetching documents:', error.message, error.stack);
-    res.status(500).json({ error: 'Failed to fetch documents: ' + error.message });
-  }
-});
-
-router.put('/document/upload', ensureAuthenticated, upload.single('file'), async (req, res) => {
-  const { applicationId, documentId } = req.body;
-  try {
-    const user = await User.findById(req.user._id);
-    if (!user || !user.unitApplicationId || user.unitApplicationId !== applicationId || user.status !== 'awaitingDocuments') {
-      return res.status(403).json({ error: 'Unauthorized or invalid status' });
-    }
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-    const fileType = req.file.mimetype.split('/')[1];
-    if (!['jpeg', 'png', 'pdf'].includes(fileType)) {
-      return res.status(400).json({ error: 'Unsupported file type. Use jpeg, png, or pdf.' });
-    }
-    const unitApiUrl = `https://api.s.unit.sh/applications/${applicationId}/documents/${documentId}`;
-    const headers = {
-      'Authorization': `Bearer ${process.env.UNIT_API_KEY}`,
-      'Content-Type': `image/${fileType === 'jpeg' ? 'jpeg' : fileType}`
-    };
-    if (fileType === 'pdf') {
-      headers['Content-Type'] = 'application/pdf';
-    }
-    const response = await axios.put(unitApiUrl, req.file.buffer, { headers });
-    res.json({ success: true, documentId: response.data.id });
-  } catch (error) {
-    console.error('Error uploading document:', error.message, error.stack);
-    res.status(500).json({ error: 'Failed to upload document: ' + error.message });
-  }
-});
 
 module.exports = router;

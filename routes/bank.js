@@ -1,34 +1,15 @@
+require('dotenv').config();
+
 const express = require('express');
 const axios = require('axios');
-const { Unit } = require('@unit-finance/unit-node-sdk');
 const router = express.Router();
 const SavingsGoal = require('../models/SavingsGoal');
-const {
-  Configuration,
-  PlaidApi,
-  PlaidEnvironments,
-} = require('plaid');
-require('dotenv').config();
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const { v4: uuid } = require('uuid');
-
-const ensureAuthenticated = async (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized: No token provided' });
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId);
-    if (!user) return res.status(401).json({ error: 'Unauthorized: User not found' });
-    req.user = user;
-    next();
-  } catch (err) {
-    console.error('Token verification error:', err);
-    res.status(401).json({ error: 'Unauthorized: Invalid token' });
-  }
-};
-
-const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
+const UnitService = require('../services/unitService');
+const PlaidService = require('../services/plaidService');
+const { ensureAuthenticated } = require('../middleware/auth');
 
 router.post('/plaid-link-token', ensureAuthenticated, async (req, res) => {
   try {
@@ -48,17 +29,14 @@ router.post('/plaid-link-token', ensureAuthenticated, async (req, res) => {
   }
 });
 
-// backend/routes/bank.js (partial update)
 router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
   const { savingsGoalId, plaidAccessToken, plaidAccountId, amount, schedule } = req.body;
   console.log('Request body:', req.body);
 
-  // Validate required fields
   if (!savingsGoalId || !plaidAccountId || !amount || !schedule) {
     return res.status(400).json({ error: 'savingsGoalId, plaidAccountId, amount, and schedule are required' });
   }
 
-  // Validate schedule
   const { startTime, interval } = schedule;
   if (!startTime || !interval) {
     return res.status(400).json({ error: 'startTime and interval are required' });
@@ -101,53 +79,32 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
     return res.status(404).json({ error: 'Savings goal not found or unauthorized' });
   }
 
-  let processorToken;
-  const configuration = new Configuration({
-    basePath: PlaidEnvironments[process.env.PLAID_ENVIRONMENT],
-    baseOptions: {
-      headers: {
-        'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-        'PLAID-SECRET': process.env.PLAID_SECRET,
-        'Plaid-Version': '2020-09-14',
-      },
-    },
-  });
-
-  const plaidClient = new PlaidApi(configuration);
+  const plaidService = new PlaidService();
 
   try {
-    // Exchange the public_token from Plaid Link for an access token
-    var tokenResponse = await plaidClient.itemPublicTokenExchange({
-      public_token: plaidAccessToken,
-    });
+    var tokenResponse = await plaidService.exchangePublicToken(plaidAccessToken);
     console.log('Plaid token exchange response:', tokenResponse.data);
   } catch (error) {
     console.error('Setup savings error:', error.response?.data || error.message, error.stack);
     res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
+    return;
   }
 
   const accessToken = tokenResponse.data.access_token;
   console.log('Plaid access token:', accessToken);
 
-  // Create a processor token for a specific account id
-  const request = {
-    access_token: accessToken,
-    account_id: plaidAccountId,
-    processor: 'unit',
-  };
-
   try {
-    var processorTokenResponse = await plaidClient.processorTokenCreate(request);
+    var processorTokenResponse = await plaidService.createProcessorToken(accessToken, plaidAccountId);
     console.log('Plaid processor token response:', processorTokenResponse.data);
   } catch (error) {
     console.error('Setup savings error:', error.response?.data || error.message, error.stack);
     res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
+    return;
   }
 
-  processorToken = processorTokenResponse.data.processor_token;
+  let processorToken = processorTokenResponse.data.processor_token;
   console.log('Plaid processor token:', processorToken);
 
-  // update savings goal
   savingsGoal.savingsAmount = parseFloat(amount);
   savingsGoal.plaidToken = processorToken;
   savingsGoal.schedule = {
@@ -185,71 +142,28 @@ router.get('/transaction-history/:savingsGoalId', ensureAuthenticated, async (re
   }
 });
 
-router.post('/payout', ensureAuthenticated, async (req, res) => {
-  const { savingsGoalId } = req.body;
-  try {
-    const savingsGoal = await SavingsGoal.findById(savingsGoalId);
-    if (!savingsGoal || savingsGoal.userId.toString() !== req.user._id || user.status !== 'approved') {
-      return res.status(403).json({ error: 'Unauthorized or not approved' });
-    }
-
-    const pendingDebits = savingsGoal.transfers.filter(t => t.type === 'debit' && t.status === 'pending');
-    const completedDebits = savingsGoal.transfers.filter(t => t.type === 'debit' && t.status === 'completed');
-    const refundAmount = completedDebits.reduce((sum, t) => sum + t.amount, 0);
-    let canceledAmount = 0;
-
-    for (const transfer of pendingDebits) {
-      await unit.transfers.cancel({ transferId: transfer.transferId });
-      transfer.status = 'cancelled';
-      canceledAmount += transfer.amount;
-    }
-    await savingsGoal.save();
-
-    let transferId = null;
-    if (refundAmount > 0) {
-      const transfer = await unit.transfers.create({
-        sourceAccountId: process.env.UNIT_FUNDING_SOURCE_ID,
-        destinationAccountId: savingsGoal.fundingSourceId,
-        amount: refundAmount,
-        metadata: { savingsGoalId }
-      });
-      transferId = transfer.data.id;
-      savingsGoal.transfers.push({
-        transferId,
-        amount: -refundAmount,
-        date: new Date(),
-        status: 'pending',
-        type: 'credit'
-      });
-      completedDebits.forEach(transfer => { transfer.status = 'refunded'; });
-      savingsGoal.currentAmount -= (refundAmount + canceledAmount);
-    } else {
-      savingsGoal.currentAmount -= canceledAmount;
-    }
-    await savingsGoal.save();
-
-    res.json({ success: true, transferId });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 router.post('/transfer-back-batch', ensureAuthenticated, async (req, res) => {
   try {
     const { totalAmount, allocations } = req.body; // allocations: [{ savingsGoalId, amount }]
     const total = Math.round(Number(totalAmount || 0));
+    
     if (!total || total <= 0) return res.status(400).json({ error: 'Invalid totalAmount' });
+    
     if (!Array.isArray(allocations) || allocations.length === 0) {
       return res.status(400).json({ error: 'No allocations provided' });
     }
 
     const goals = await SavingsGoal.find({ _id: { $in: allocations.map(a => a.savingsGoalId) }, userId: req.user._id });
+    
     const goalsById = new Map(goals.map(g => [String(g._id), g]));
+    
     const sumAlloc = allocations.reduce((s, a) => s + Math.round(Number(a.amount || 0)), 0);
+    
     if (sumAlloc !== total) return res.status(400).json({ error: 'Allocations must sum to totalAmount' });
 
     // Validate per-goal limits
     for (const a of allocations) {
+
       const g = goalsById.get(a.savingsGoalId);
       if (!g) return res.status(400).json({ error: 'Goal not found: ' + a.savingsGoalId });
       const amt = Math.round(Number(a.amount || 0));
@@ -265,8 +179,8 @@ router.post('/transfer-back-batch', ensureAuthenticated, async (req, res) => {
 
     const batchId = uuid();
 
-    // Create single ACH payment (Credit from Unit to user bank)
-    const ach = await unit.payments.create({
+    const unitService = new UnitService();
+    const ach = await unitService.createPayment({
       type: 'achPayment',
       attributes: {
         amount: total * 100,
@@ -281,12 +195,11 @@ router.post('/transfer-back-batch', ensureAuthenticated, async (req, res) => {
     });
 
     // Record pending allocation entries across goals (link by batchId + same paymentId)
-    const paymentId = ach.data.id;
     const now = new Date();
     for (const a of allocations) {
       const g = goalsById.get(a.savingsGoalId);
       g.transfers.push({
-        transferId: paymentId,
+        transferId: ach.data.id,
         batchId,
         amount: Number(a.amount),
         date: now,
@@ -296,7 +209,7 @@ router.post('/transfer-back-batch', ensureAuthenticated, async (req, res) => {
       await g.save();
     }
 
-    return res.json({ paymentId, batchId, processed: allocations.length });
+    return res.json({ paymentId: ach.data.id, batchId, processed: allocations.length });
   } catch (e) {
     console.error('transfer-back-batch error:', e);
     return res.status(500).json({ error: 'Failed to process transfer back' });
