@@ -27,11 +27,11 @@ app.post('/webhook', async (req, res) => {
 
 app.use(cors({
   origin: [
-    process.env.REACT_APP_URL, // Keep your existing localhost URL
+    process.env.REACT_APP_URL,
     'https://gostashpay.com',
     'https://sandbox.gostashpay.com',
-    'http://localhost:3000', // Keep for local development
-    'http://localhost:3001'  // Keep for local development
+    'http://localhost:3000',
+    'http://localhost:3001'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT', 'PATCH'],
@@ -51,11 +51,14 @@ app.get('/test', (req, res) => {
 
 app.get('/api/cron/process-payments', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization || '';
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    // Check for token in query parameter (Vercel cron) or Authorization header
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    if (token !== process.env.CRON_SECRET) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    console.log('Cron job started at:', new Date().toISOString());
     await processScheduledPayments();
+    console.log('Cron job completed at:', new Date().toISOString());
     res.json({ ok: true });
   } catch (e) {
     console.error('Cron route error:', e);
