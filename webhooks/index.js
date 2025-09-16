@@ -4,6 +4,27 @@ const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 const mongoose = require('mongoose');
 
+async function approveTestUserApplication(applicationId) {
+  response = await axios.post(
+    `https://api.s.unit.sh/sandbox/applications/${applicationId}/approve`,
+    {
+      data: {
+        type: "applicationApprove",
+        attributes: {
+            reason: "sandbox"
+        }
+      }
+    },
+    {
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        'Authorization': `Bearer ${process.env.UNIT_API_KEY}`,
+        'X-Accept-Version': 'V2024_06'
+      }
+    }
+  );
+}
+
 async function findGoalByPaymentId(paymentId) {
   if (!paymentId) return null;
   return SavingsGoal.findOne({ 'transfers.transferId': paymentId });
@@ -236,6 +257,10 @@ async function handleApplicationCreated(eventData) {
   user.unitApplicationId = applicationId;
   user.status = 'pending';
   await user.save();
+
+  if ('production' !== process.env.VERCEL_ENV) {
+    await approveTestUserApplication(applicationId);
+  }
 }
 
 async function handleCustomerCreated(eventData) {
