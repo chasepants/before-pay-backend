@@ -19,6 +19,22 @@ router.get('/', ensureAuthenticated, async (req, res) => {
   }
 });
 
+router.get('/search', ensureAuthenticated, async (req, res) => {
+  const { q } = req.query;
+  try {
+    const response = await axios.get('https://serpapi.com/search', {
+      params: { api_key: process.env.SERPAPI_KEY, engine: 'google_shopping', q, num: 10 }
+    });
+    const products = response.data.shopping_results.map(item => ({
+      price: parseFloat(item.price?.replace(/[^0-9.]/g, '') || '0') || 0,
+      ...item
+    }));
+    res.json(products);
+  } catch (error) {
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
 router.get('/:id', ensureAuthenticated, async (req, res) => {
   const { id } = req.params;
   try {
@@ -284,22 +300,6 @@ router.post('/:id/save-product', ensureAuthenticated, async (req, res) => {
   } catch (error) {
     console.error('Save product error:', error);
     res.status(500).json({ error: 'Failed to save product' });
-  }
-});
-
-router.get('/search', ensureAuthenticated, async (req, res) => {
-  const { q } = req.query;
-  try {
-    const response = await axios.get('https://serpapi.com/search', {
-      params: { api_key: process.env.SERPAPI_KEY, engine: 'google_shopping', q, num: 10 }
-    });
-    const products = response.data.shopping_results.map(item => ({
-      price: parseFloat(item.price?.replace(/[^0-9.]/g, '') || '0') || 0,
-      ...item
-    }));
-    res.json(products);
-  } catch (error) {
-    res.status(500).json({ error: 'Search failed' });
   }
 });
 

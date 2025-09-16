@@ -23,6 +23,9 @@ const xaiService = require('../../services/xaiService');
 // At the top of the test file, add the web search service mock
 jest.mock('../../services/webSearchService');
 
+// Mock axios for the search endpoint
+jest.mock('axios');
+
 const webSearchService = require('../../services/webSearchService');
 
 // Create Express app for testing
@@ -2044,6 +2047,359 @@ describe('SavingsGoal Routes', () => {
       expect(response.body.currentAmount).toBe(300);
       expect(response.body.category).toBe('other');
       expect(webSearchService.searchProducts).toHaveBeenCalledWith('gaming computer parts', 'other');
+    });
+  });
+
+  describe('POST /:id/save-product', () => {
+    let testGoal;
+
+    beforeEach(async () => {
+      // Create a test savings goal
+      testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal',
+        targetAmount: 1000,
+        currentAmount: 0,
+        category: 'other',
+        product: {
+          title: 'Original Product',
+          price: '500'
+        }
+      });
+      await testGoal.save();
+    });
+
+    it('should return 401 when no token is provided', async () => {
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/save-product`)
+        .send({ productData: { title: 'New Product' } })
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized: No token provided');
+    });
+
+    it('should return 401 when invalid token is provided', async () => {
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/save-product`)
+        .set('Authorization', 'Bearer invalid-token')
+        .send({ productData: { title: 'New Product' } })
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized: Invalid token');
+    });
+
+    it('should return 404 when savings goal is not found', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId();
+      const response = await request(app)
+        .post(`/api/savings-goal/${nonExistentId}/save-product`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ productData: { title: 'New Product' } })
+        .expect(404);
+
+      expect(response.body.error).toBe('Savings goal not found');
+    });
+
+    it('should save product data successfully', async () => {
+      const productData = {
+        title: 'New Gaming Laptop',
+        price: '1299',
+        old_price: '1499',
+        thumbnail: 'https://example.com/laptop.jpg',
+        source: 'Tech Store',
+        productLink: 'https://example.com/laptop',
+        rating: 4.5,
+        reviews_count: 150
+      };
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/save-product`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ productData })
+        .expect(200);
+
+      expect(response.body.message).toBe('Product saved successfully');
+      expect(response.body.goal.product.title).toBe('New Gaming Laptop');
+      expect(response.body.goal.product.price).toBe('1299');
+      expect(response.body.goal.product.old_price).toBe('1499');
+      expect(response.body.goal.product.thumbnail).toBe('https://example.com/laptop.jpg');
+      expect(response.body.goal.product.source).toBe('Tech Store');
+      expect(response.body.goal.product.productLink).toBe('https://example.com/laptop');
+      expect(response.body.goal.product.rating).toBe(4.5);
+      expect(response.body.goal.product.reviews).toBe(150);
+    });
+
+    it('should handle database errors when saving product', async () => {
+      // Mock the save method to throw an error
+      const originalSave = SavingsGoal.prototype.save;
+      SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
+
+      const productData = {
+        title: 'New Product',
+        price: '100'
+      };
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/save-product`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ productData })
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to save product');
+
+      // Restore the original save method
+      SavingsGoal.prototype.save = originalSave;
+    });
+  });
+
+  describe('Edge cases for existing endpoints', () => {
+    let testGoal;
+
+    beforeEach(async () => {
+      testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal',
+        targetAmount: 1000,
+        currentAmount: 0,
+        category: 'other'
+      });
+      await testGoal.save();
+    });
+
+    it('should return 400 when prompt is empty for generate-image', async () => {
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/generate-image`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ prompt: '' })
+        .expect(400);
+
+      expect(response.body.error).toBe('Prompt is required');
+    });
+
+    it('should return 400 when prompt is only whitespace for generate-image', async () => {
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/generate-image`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ prompt: '   ' })
+        .expect(400);
+
+      expect(response.body.error).toBe('Prompt is required');
+    });
+
+    it('should return 400 when type is missing for ai-insights', async () => {
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/ai-insights`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ prompt: 'test prompt' })
+        .expect(400);
+
+      expect(response.body.error).toBe('Type and prompt are required');
+    });
+
+    it('should return 400 when prompt is missing for ai-insights', async () => {
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/ai-insights`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ type: 'description-enhancement' })
+        .expect(400);
+
+      expect(response.body.error).toBe('Type and prompt are required');
+    });
+
+    it('should return 400 when type is invalid for ai-insights', async () => {
+      const response = await request(app)
+        .post(`/api/savings-goal/${testGoal._id}/ai-insights`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ 
+          type: 'invalid-type', 
+          prompt: 'test prompt' 
+        })
+        .expect(400);
+
+      expect(response.body.error).toBe('Invalid insight type');
+    });
+
+    it('should return 400 when search query is empty for web-search', async () => {
+      // Create a product-type goal with product data for web search
+      const productGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Product Goal',
+        targetAmount: 1000,
+        currentAmount: 0,
+        category: 'product',
+        product: {
+          title: 'Test Product',
+          price: '100',
+          source: 'Test Store'
+        }
+      });
+      await productGoal.save();
+
+      // Mock the web search service to return success
+      webSearchService.searchProducts.mockResolvedValue({
+        success: true,
+        results: []
+      });
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${productGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ searchQuery: '' })
+        .expect(400);
+
+      expect(response.body.error).toBe('Search query is required');
+    });
+
+    it('should return 400 when search query is only whitespace for web-search', async () => {
+      // Create a product-type goal with product data for web search
+      const productGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Product Goal',
+        targetAmount: 1000,
+        currentAmount: 0,
+        category: 'product',
+        product: {
+          title: 'Test Product',
+          price: '100',
+          source: 'Test Store'
+        }
+      });
+      await productGoal.save();
+
+      // Mock the web search service to return success
+      webSearchService.searchProducts.mockResolvedValue({
+        success: true,
+        results: []
+      });
+
+      const response = await request(app)
+        .post(`/api/savings-goal/${productGoal._id}/web-search`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ searchQuery: '   ' })
+        .expect(400);
+
+      expect(response.body.error).toBe('Search query is required');
+    });
+  });
+
+  describe('GET /search', () => {
+    let axios;
+
+    beforeEach(() => {
+      // Reset all mocks before each test
+      jest.clearAllMocks();
+      // Get the mocked axios
+      axios = require('axios');
+    });
+
+    it('should return 401 when no token is provided', async () => {
+      const response = await request(app)
+        .get('/api/savings-goal/search?q=test')
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized: No token provided');
+    });
+
+    it('should return 401 when invalid token is provided', async () => {
+      const response = await request(app)
+        .get('/api/savings-goal/search?q=test')
+        .set('Authorization', 'Bearer invalid-token')
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized: Invalid token');
+    });
+
+    it('should return 401 when user is not found', async () => {
+      // Create a token for a non-existent user
+      const nonExistentUserId = new mongoose.Types.ObjectId();
+      const invalidToken = jwt.sign(
+        { userId: nonExistentUserId.toString() },
+        process.env.JWT_SECRET || 'test-secret',
+        { expiresIn: '1h' }
+      );
+
+      const response = await request(app)
+        .get('/api/savings-goal/search?q=test')
+        .set('Authorization', `Bearer ${invalidToken}`)
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized: User not found');
+    });
+
+    it('should perform search successfully', async () => {
+      // Mock axios for the search endpoint
+      axios.get.mockResolvedValue({
+        data: {
+          shopping_results: [
+            {
+              title: 'Test Product',
+              price: '$99.99',
+              thumbnail: 'https://example.com/image.jpg',
+              source: 'Test Store',
+              link: 'https://example.com/product'
+            }
+          ]
+        }
+      });
+
+      const response = await request(app)
+        .get('/api/savings-goal/search?q=test')
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].title).toBe('Test Product');
+      expect(response.body[0].price).toBe('$99.99');
+      expect(axios.get).toHaveBeenCalledWith('https://serpapi.com/search', {
+        params: { 
+          api_key: process.env.SERPAPI_KEY, 
+          engine: 'google_shopping', 
+          q: 'test', 
+          num: 10 
+        }
+      });
+    });
+
+    it('should handle search errors', async () => {
+      // Mock axios to throw an error
+      axios.get.mockRejectedValue(new Error('Search failed'));
+
+      const response = await request(app)
+        .get('/api/savings-goal/search?q=test')
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(500);
+
+      expect(response.body.error).toBe('Search failed');
+    });
+
+    it('should handle products with invalid prices', async () => {
+      // Mock axios to return products with invalid prices
+      axios.get.mockResolvedValue({
+        data: {
+          shopping_results: [
+            {
+              title: 'Product with invalid price',
+              price: 'invalid-price',
+              thumbnail: 'https://example.com/image.jpg',
+              source: 'Test Store',
+              link: 'https://example.com/product'
+            },
+            {
+              title: 'Product with no price',
+              thumbnail: 'https://example.com/image2.jpg',
+              source: 'Test Store 2',
+              link: 'https://example.com/product2'
+            }
+          ]
+        }
+      });
+
+      const response = await request(app)
+        .get('/api/savings-goal/search?q=test')
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveLength(2);
+      expect(response.body[0].price).toBe('invalid-price'); // Invalid price stays as string
+      expect(response.body[1].price).toBe(0); // No price should default to 0
     });
   });
 });
