@@ -12,6 +12,33 @@ const { processScheduledPayments } = require('./cron/process-payments');
 const launchRoutes = require('./routes/launch');
 const app = express();
 
+// CORS middleware should be applied FIRST, before any other middleware
+app.use(cors({
+  origin: [
+    process.env.REACT_APP_URL,
+    'https://gostashpay.com',
+    'https://sandbox.gostashpay.com',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    // Add Vercel preview domains
+    /^https:\/\/.*\.vercel\.app$/,
+    /^https:\/\/.*\.vercel\.com$/
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
+}));
+
+// Handle preflight requests explicitly
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(200);
+});
+
 app.use(express.json());
 app.use(express.raw({ type: 'application/json' }));
 
@@ -24,19 +51,6 @@ app.post('/webhook', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-app.use(cors({
-  origin: [
-    process.env.REACT_APP_URL,
-    'https://gostashpay.com',
-    'https://sandbox.gostashpay.com',
-    'http://localhost:3000',
-    'http://localhost:3001'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
 
 app.use(passport.initialize());
 
