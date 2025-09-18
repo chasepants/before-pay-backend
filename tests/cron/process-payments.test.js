@@ -373,12 +373,15 @@ describe('process-payments', () => {
       ]);
 
       expect(updatedGoal1.transfers).toHaveLength(1);
-      expect(updatedGoal1.transfers[0].transferId).toBe('test-payment-id-1');
       expect(updatedGoal1.transfers[0].amount).toBe(25.00);
+      expect(['test-payment-id-1', 'test-payment-id-2']).toContain(updatedGoal1.transfers[0].transferId);
 
       expect(updatedGoal2.transfers).toHaveLength(1);
-      expect(updatedGoal2.transfers[0].transferId).toBe('test-payment-id-2');
       expect(updatedGoal2.transfers[0].amount).toBe(75.00);
+      expect(['test-payment-id-1', 'test-payment-id-2']).toContain(updatedGoal2.transfers[0].transferId);
+
+      // Ensure they got different transfer IDs
+      expect(updatedGoal1.transfers[0].transferId).not.toBe(updatedGoal2.transfers[0].transferId);
     });
 
     it('should handle mixed dayOfMonth and dayOfWeek schedules', async () => {

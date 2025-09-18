@@ -33,7 +33,7 @@ async function processScheduledPayments() {
       { "schedule.dayOfMonth": dayOfMonth },
       { "schedule.dayOfWeek": dayOfWeek }
     ]
-  });
+  }).sort({ _id: 1 }); // Sort by _id to ensure consistent order
 
   for (const goal of savingsGoals) {
     try {

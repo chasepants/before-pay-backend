@@ -2,9 +2,10 @@ const SavingsGoal = require('../models/SavingsGoal');
 const User = require('../models/User');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
-const mongoose = require('mongoose');
+const axios = require('axios');
 
 async function approveTestUserApplication(applicationId) {
+  console.log("approving test user application");
   response = await axios.post(
     `https://api.s.unit.sh/sandbox/applications/${applicationId}/approve`,
     {
@@ -257,7 +258,7 @@ async function handleApplicationCreated(eventData) {
   user.unitApplicationId = applicationId;
   user.status = 'pending';
   await user.save();
-
+  console.log(process.env.VERCEL_ENV);
   if ('production' !== process.env.VERCEL_ENV) {
     await approveTestUserApplication(applicationId);
   }
