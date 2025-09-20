@@ -2,7 +2,7 @@ const axios = require('axios');
 require('dotenv').config();
 
 const UNIT_API_BASE = process.env.UNIT_API_BASE || 'https://api.s.unit.sh';
-const UNIT_API_TOKEN = process.env.UNIT_API_TOKEN;
+const UNIT_API_TOKEN = process.env.UNIT_API_KEY;
 
 class UnitMerchantService {
   constructor() {
