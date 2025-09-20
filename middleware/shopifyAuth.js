@@ -28,10 +28,10 @@ const verifyShopifySessionToken = (req, res, next) => {
     }
     
     // Verify the token using your Shopify app secret
-    const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
+    const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
     
-    if (!SHOPIFY_API_SECRET) {
-      console.error('SHOPIFY_API_SECRET environment variable not set');
+    if (!SHOPIFY_CLIENT_SECRET) {
+      console.error('SHOPIFY_CLIENT_SECRET environment variable not set');
       return res.status(500).json({ 
         error: 'Server configuration error',
         message: 'Shopify API secret not configured'
@@ -39,7 +39,7 @@ const verifyShopifySessionToken = (req, res, next) => {
     }
     
     // Verify the JWT token
-    const payload = jwt.verify(token, SHOPIFY_API_SECRET, { 
+    const payload = jwt.verify(token, SHOPIFY_CLIENT_SECRET, { 
       algorithms: ['HS256'] 
     });
     
