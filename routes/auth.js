@@ -331,19 +331,6 @@ router.get('/create-application-form', ensureAuthenticated, async (req, res) => 
       return res.status(400).json({ error: 'User not found' });
     }
 
-    // if (user.unitApplicationFormId && user.unitApplicationFormExpiration) {
-    //   const expirationDate = new Date(user.unitApplicationFormExpiration);
-    //   if (expirationDate > new Date()) {
-    //     console.log(`Using cached application form for user ${user.email}:`, user.unitApplicationFormId);
-    //     return res.json({
-    //       id: user.unitApplicationFormId,
-    //       token: user.unitApplicationFormToken,
-    //       expiration: user.unitApplicationFormExpiration,
-    //       url: user.unitApplicationFormUrl
-    //     });
-    //   }
-    // }  
-
     let response;
     if (user.unitApplicationId) {
       response = await axios.post(

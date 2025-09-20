@@ -10,6 +10,7 @@ const bankRoutes = require('./routes/bank');
 const webhook = require('./webhooks/index');
 const { processScheduledPayments } = require('./cron/process-payments');
 const launchRoutes = require('./routes/launch');
+const shopifyMerchantRoutes = require('./routes/shopifyMerchant');
 const app = express();
 
 // CORS middleware should be applied FIRST, before any other middleware
@@ -20,6 +21,11 @@ app.use(cors({
     'https://sandbox.gostashpay.com',
     'http://localhost:3000',
     'http://localhost:3001',
+    // Shopify app domains
+    /^https:\/\/.*\.myshopify\.com$/,
+    /^https:\/\/.*\.shopifypreview\.com$/,
+    // Shopify extensions
+    'https://extensions.shopifycdn.com',
     // Add Vercel preview domains
     /^https:\/\/.*\.vercel\.app$/,
     /^https:\/\/.*\.vercel\.com$/
@@ -58,6 +64,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/savings-goal', savingsGoalRoutes);
 app.use('/api/bank', bankRoutes);
 app.use('/api/launch', launchRoutes);
+app.use('/api/shopify-merchant', shopifyMerchantRoutes);
 
 app.get('/test', (req, res) => {
   res.json({ message: 'Server is running' });
