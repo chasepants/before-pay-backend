@@ -1,5 +1,6 @@
 const SavingsGoal = require('../models/SavingsGoal');
 const User = require('../models/User');
+const ShopifyMerchant = require('../models/ShopifyMerchant');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 const axios = require('axios');
@@ -327,6 +328,106 @@ async function handleDocumentApproved(eventData) {
   console.log('document approved', eventData);
 }
 
+async function handleMerchantApplicationCreated(eventData) {
+  const merchantId = eventData.attributes.tags?.merchantId;
+  const applicationId = eventData.relationships.application.data.id;
+  
+  if (!merchantId) {
+    console.warn('No merchantId found in tags for merchant application.created event');
+    return;
+  }
+  
+  const merchant = await ShopifyMerchant.findById(merchantId);
+  if (!merchant) {
+    console.warn(`No merchant found for merchantId: ${merchantId}`);
+    return;
+  }
+  
+  // Save the Unit application ID
+  merchant.unitApplicationId = applicationId;
+  merchant.onboardingStatus = 'in_progress';
+  merchant.kybStatus = 'in_progress';
+  await merchant.save();
+  
+  console.log(`Merchant ${merchant.shopifyShopId} application created with applicationId: ${applicationId}`);
+}
+
+async function handleMerchantApplicationApproved(eventData) {
+  const merchantId = eventData.attributes.tags?.merchantId;
+  const applicationId = eventData.relationships.application.data.id;
+  
+  if (!merchantId) {
+    console.warn('No merchantId found in tags for merchant application.approved event');
+    return;
+  }
+  
+  const merchant = await ShopifyMerchant.findById(merchantId);
+  if (!merchant) {
+    console.warn(`No merchant found for merchantId: ${merchantId}`);
+    return;
+  }
+  
+  // Update merchant status to approved
+  merchant.onboardingStatus = 'in_progress';
+  merchant.kybStatus = 'approved';
+  await merchant.save();
+  
+  console.log(`Merchant ${merchant.shopifyShopId} application approved with applicationId: ${applicationId}`);
+}
+
+async function handleMerchantCustomerCreated(eventData) {
+  const merchantId = eventData.attributes.tags?.merchantId;
+  const customerId = eventData.relationships.customer.data.id;
+  
+  if (!merchantId) {
+    console.warn('No merchantId found in tags for merchant customer.created event');
+    return;
+  }
+  
+  const merchant = await ShopifyMerchant.findById(merchantId);
+  if (!merchant) {
+    console.warn(`No merchant found for merchantId: ${merchantId}`);
+    return;
+  }
+  
+  // Create a deposit account for the merchant
+  const depositAccountRequest = {
+    type: 'depositAccount',
+    attributes: {
+      depositProduct: 'checking',
+      tags: { 
+        purpose: 'merchant_deposit',
+        merchantId: merchantId.toString(),
+        source: 'shopify-stashpay'
+      },
+      idempotencyKey: `${merchant.shopifyShopId}-deposit-${Date.now()}`
+    },
+    relationships: {
+      customer: { data: { type: 'customer', id: customerId } }
+    }
+  };
+  
+  try {
+    const accountResponse = await unit.accounts.create(depositAccountRequest);
+    const accountId = accountResponse.data.id;
+    
+    // Update merchant with customer and account IDs
+    merchant.unitAccountId = accountId;
+    merchant.onboardingStatus = 'completed';
+    merchant.kybStatus = 'approved';
+    merchant.isEnabled = true;
+    await merchant.save();
+    
+    console.log(`Merchant ${merchant.shopifyShopId} onboarding completed with customerId: ${customerId}, accountId: ${accountId}`);
+  } catch (accountError) {
+    console.error('Failed to create deposit account for merchant:', accountError.message);
+    merchant.onboardingStatus = 'in_progress';
+    merchant.kybStatus = 'in_progress';
+    await merchant.save();
+    throw new Error('Failed to create deposit account for merchant');
+  }
+}
+
 const webhook = async (req, res) => {
   let event;
   try {
@@ -343,13 +444,23 @@ const webhook = async (req, res) => {
   for (const eventData of event.data) {
     switch (eventData.type) {
       case 'application.approved':
-        await handleApplicationApproved(eventData);
+        // Check if this is a merchant application (has merchantId in tags)
+        if (eventData.attributes.tags?.merchantId) {
+          await handleMerchantApplicationApproved(eventData);
+        } else {
+          await handleApplicationApproved(eventData);
+        }
         break;
       case 'application.denied':
         await handleApplicationDenied(eventData);
         break;
       case 'customer.created':
-        await handleCustomerCreated(eventData);
+        // Check if this is a merchant customer (has merchantId in tags)
+        if (eventData.attributes.tags?.merchantId) {
+          await handleMerchantCustomerCreated(eventData);
+        } else {
+          await handleCustomerCreated(eventData);
+        }
         break;
       case 'application.awaitingDocuments':
         await handleApplicationAwaitingDocuments(eventData);
@@ -358,7 +469,12 @@ const webhook = async (req, res) => {
         await handleApplicationPendingReview(eventData);
         break;
       case 'application.created':
-        await handleApplicationCreated(eventData);
+        // Check if this is a merchant application (has merchantId in tags)
+        if (eventData.attributes.tags?.merchantId) {
+          await handleMerchantApplicationCreated(eventData);
+        } else {
+          await handleApplicationCreated(eventData);
+        }
         break;
       case 'document.approved':
         await handleDocumentApproved(eventData);
