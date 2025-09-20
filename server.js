@@ -28,7 +28,9 @@ app.use(cors({
     'https://extensions.shopifycdn.com',
     // Add Vercel preview domains
     /^https:\/\/.*\.vercel\.app$/,
-    /^https:\/\/.*\.vercel\.com$/
+    /^https:\/\/.*\.vercel\.com$/,
+    // Add Cloudflare tunnel domains for development
+    /^https:\/\/.*\.trycloudflare\.com$/
   ],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS', 'DELETE', 'PUT', 'PATCH'],
