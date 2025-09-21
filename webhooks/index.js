@@ -346,7 +346,6 @@ async function handleMerchantApplicationCreated(eventData) {
   // Save the Unit application ID
   merchant.unitApplicationId = applicationId;
   merchant.onboardingStatus = 'in_progress';
-  merchant.kybStatus = 'in_progress';
   await merchant.save();
   
   console.log(`Merchant ${merchant.shopifyShopId} application created with applicationId: ${applicationId}`);
@@ -367,9 +366,8 @@ async function handleMerchantApplicationApproved(eventData) {
     return;
   }
   
-  // Update merchant status to approved
+  // Update merchant status to in_progress (application approved, waiting for customer creation)
   merchant.onboardingStatus = 'in_progress';
-  merchant.kybStatus = 'approved';
   await merchant.save();
   
   console.log(`Merchant ${merchant.shopifyShopId} application approved with applicationId: ${applicationId}`);
@@ -396,7 +394,6 @@ async function handleMerchantCustomerCreated(eventData) {
   
   // Update merchant with customer ID
   merchant.unitCustomerId = customerId;
-  merchant.kybStatus = 'approved';
   await merchant.save();
   
   console.log(`Merchant ${merchant.shopifyShopId} customer created with customerId: ${customerId}`);
@@ -422,10 +419,9 @@ async function handleMerchantCustomerCreated(eventData) {
     const accountResponse = await unit.accounts.create(depositAccountRequest);
     const accountId = accountResponse.data.id;
     
-    // Update merchant with account ID
+    // Update merchant with account ID and complete onboarding
     merchant.unitAccountId = accountId;
     merchant.onboardingStatus = 'completed';
-    merchant.isEnabled = true;
     await merchant.save();
     
     console.log(`Merchant ${merchant.shopifyShopId} deposit account created with accountId: ${accountId}, onboarding completed`);
@@ -461,7 +457,6 @@ async function handleMerchantAccountCreated(eventData) {
   if (!merchant.unitAccountId) {
     merchant.unitAccountId = accountId;
     merchant.onboardingStatus = 'completed';
-    merchant.isEnabled = true;
     await merchant.save();
     console.log(`Merchant ${merchant.shopifyShopId} account ID updated via account.created webhook: ${accountId}`);
   } else {

@@ -24,11 +24,6 @@ const shopifyMerchantSchema = new mongoose.Schema({
     enum: ['pending', 'in_progress', 'completed', 'rejected', 'suspended'],
     default: 'pending'
   },
-  kybStatus: {
-    type: String,
-    enum: ['not_started', 'in_progress', 'approved', 'rejected', 'requires_documents'],
-    default: 'not_started'
-  },
   unitApplicationFormId: {
     type: String,
     default: null
@@ -40,10 +35,6 @@ const shopifyMerchantSchema = new mongoose.Schema({
   unitApplicationFormToken: {
     type: String,
     default: null
-  },
-  isEnabled: {
-    type: Boolean,
-    default: false
   }
 }, {
   timestamps: true
@@ -56,7 +47,6 @@ shopifyMerchantSchema.pre('save', function(next) {
 
 shopifyMerchantSchema.index({ shopifyShopId: 1 });
 shopifyMerchantSchema.index({ onboardingStatus: 1 });
-shopifyMerchantSchema.index({ kybStatus: 1 });
 shopifyMerchantSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('ShopifyMerchant', shopifyMerchantSchema);
