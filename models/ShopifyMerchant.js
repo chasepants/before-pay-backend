@@ -11,6 +11,10 @@ const shopifyMerchantSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  unitCustomerId: {
+    type: String,
+    default: null
+  },
   unitAccountId: {
     type: String,
     default: null

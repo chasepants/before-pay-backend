@@ -379,6 +379,8 @@ async function handleMerchantCustomerCreated(eventData) {
   const merchantId = eventData.attributes.tags?.merchantId;
   const customerId = eventData.relationships.customer.data.id;
   
+  console.log(`Processing merchant customer.created webhook for merchantId: ${merchantId}, customerId: ${customerId}`);
+  
   if (!merchantId) {
     console.warn('No merchantId found in tags for merchant customer.created event');
     return;
@@ -389,6 +391,15 @@ async function handleMerchantCustomerCreated(eventData) {
     console.warn(`No merchant found for merchantId: ${merchantId}`);
     return;
   }
+  
+  console.log(`Found merchant ${merchant.shopifyShopId}, current status: ${merchant.onboardingStatus}`);
+  
+  // Update merchant with customer ID
+  merchant.unitCustomerId = customerId;
+  merchant.kybStatus = 'approved';
+  await merchant.save();
+  
+  console.log(`Merchant ${merchant.shopifyShopId} customer created with customerId: ${customerId}`);
   
   // Create a deposit account for the merchant
   const depositAccountRequest = {
@@ -411,20 +422,50 @@ async function handleMerchantCustomerCreated(eventData) {
     const accountResponse = await unit.accounts.create(depositAccountRequest);
     const accountId = accountResponse.data.id;
     
-    // Update merchant with customer and account IDs
+    // Update merchant with account ID
     merchant.unitAccountId = accountId;
     merchant.onboardingStatus = 'completed';
-    merchant.kybStatus = 'approved';
     merchant.isEnabled = true;
     await merchant.save();
     
-    console.log(`Merchant ${merchant.shopifyShopId} onboarding completed with customerId: ${customerId}, accountId: ${accountId}`);
+    console.log(`Merchant ${merchant.shopifyShopId} deposit account created with accountId: ${accountId}, onboarding completed`);
   } catch (accountError) {
     console.error('Failed to create deposit account for merchant:', accountError.message);
     merchant.onboardingStatus = 'in_progress';
-    merchant.kybStatus = 'in_progress';
     await merchant.save();
     throw new Error('Failed to create deposit account for merchant');
+  }
+}
+
+async function handleMerchantAccountCreated(eventData) {
+  const merchantId = eventData.attributes.tags?.merchantId;
+  const accountId = eventData.relationships.account.data.id;
+  
+  console.log(`Processing merchant account.created webhook for merchantId: ${merchantId}, accountId: ${accountId}`);
+  
+  if (!merchantId) {
+    console.warn('No merchantId found in tags for merchant account.created event');
+    return;
+  }
+  
+  const merchant = await ShopifyMerchant.findById(merchantId);
+  if (!merchant) {
+    console.warn(`No merchant found for merchantId: ${merchantId}`);
+    return;
+  }
+  
+  console.log(`Found merchant ${merchant.shopifyShopId}, current status: ${merchant.onboardingStatus}`);
+  
+  // This is a backup handler - the customer.created handler should have already created the account
+  // But if for some reason it didn't, we'll update the status here
+  if (!merchant.unitAccountId) {
+    merchant.unitAccountId = accountId;
+    merchant.onboardingStatus = 'completed';
+    merchant.isEnabled = true;
+    await merchant.save();
+    console.log(`Merchant ${merchant.shopifyShopId} account ID updated via account.created webhook: ${accountId}`);
+  } else {
+    console.log(`Merchant ${merchant.shopifyShopId} account already exists, no update needed`);
   }
 }
 
@@ -460,6 +501,14 @@ const webhook = async (req, res) => {
           await handleMerchantCustomerCreated(eventData);
         } else {
           await handleCustomerCreated(eventData);
+        }
+        break;
+      case 'account.created':
+        // Check if this is a merchant account (has merchantId in tags)
+        if (eventData.attributes.tags?.merchantId) {
+          await handleMerchantAccountCreated(eventData);
+        } else {
+          console.log('Regular account.created event (not merchant)');
         }
         break;
       case 'application.awaitingDocuments':
