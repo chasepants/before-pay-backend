@@ -9,6 +9,7 @@ require('dotenv').config();
 const { generateImage, enhanceDescription } = require('../services/xaiService');
 const { searchProducts } = require('../services/webSearchService');
 const { ensureAuthenticated } = require('../middleware/auth');
+const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
 
 router.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -65,6 +66,34 @@ router.get('/:id', ensureAuthenticated, async (req, res) => {
     res.json(goal);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch savings goal' });
+  }
+});
+
+// Shopify endpoint for extensions (uses Shopify session token auth)
+router.post('/shopify', verifyShopifySessionToken, async (req, res) => {
+  try {
+    const { goalName, description, targetAmount, product } = req.body;
+    
+    // Validate required fields
+    if (!goalName || !targetAmount) {
+      return res.status(400).json({ error: 'Goal name and target amount are required' });
+    }
+
+    // Create savings goal without userId (for Shopify)
+    const savingsGoal = new SavingsGoal({
+      goalName,
+      description: description || '',
+      targetAmount: parseFloat(targetAmount),
+      product: product || {},
+      // No userId for Shopify-created goals
+      source: 'shopify'
+    });
+
+    await savingsGoal.save();
+    res.status(201).json(savingsGoal);
+  } catch (error) {
+    console.error('Error creating Shopify savings goal:', error);
+    res.status(500).json({ error: 'Failed to create savings goal' });
   }
 });
 

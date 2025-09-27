@@ -3,32 +3,38 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const jwt = require('jsonwebtoken');
-
-// Import the router and models
 const savingsGoalRouter = require('../../routes/savingsGoal');
 const User = require('../../models/User');
 const SavingsGoal = require('../../models/SavingsGoal');
 const { generateImage, enhanceDescription } = require('../../services/xaiService');
 const { searchProducts } = require('../../services/webSearchService');
 
-// At the very top of the test file, before any other code
 jest.mock('../../services/xaiService', () => ({
   generateImage: jest.fn(),
   enhanceDescription: jest.fn()
 }));
 
-// Now import the mocked functions
 const xaiService = require('../../services/xaiService');
 
-// At the top of the test file, add the web search service mock
 jest.mock('../../services/webSearchService');
 
-// Mock axios for the search endpoint
 jest.mock('axios');
+
+jest.mock('../../middleware/shopifyAuth', () => ({
+  verifyShopifySessionToken: (req, res, next) => {
+    req.shopifySession = {
+      id: 'test-session-id',
+      shop_id: '123456789',
+      shop_domain: 'test-shop.myshopify.com',
+      is_online: true,
+      state: 'active'
+    };
+    next();
+  }
+}));
 
 const webSearchService = require('../../services/webSearchService');
 
-// Create Express app for testing
 const app = express();
 app.use(express.json());
 app.use('/api/savings-goal', savingsGoalRouter);
@@ -39,24 +45,20 @@ describe('SavingsGoal Routes', () => {
   let authToken;
 
   beforeAll(async () => {
-    // Start in-memory MongoDB server
     mongoServer = await MongoMemoryServer.create();
     const mongoUri = mongoServer.getUri();
     await mongoose.connect(mongoUri);
   });
 
   afterAll(async () => {
-    // Clean up
     await mongoose.disconnect();
     await mongoServer.stop();
   });
 
   beforeEach(async () => {
-    // Clear all collections before each test
     await User.deleteMany({});
     await SavingsGoal.deleteMany({});
 
-    // Create a test user
     testUser = new User({
       email: 'test@example.com',
       googleId: 'test-google-id',
@@ -65,7 +67,6 @@ describe('SavingsGoal Routes', () => {
     });
     await testUser.save();
 
-    // Create auth token for the test user
     authToken = jwt.sign(
       { userId: testUser._id.toString() },
       process.env.JWT_SECRET || 'test-secret',
@@ -92,7 +93,6 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should return 401 when user is not found', async () => {
-      // Create token with non-existent user ID
       const invalidToken = jwt.sign(
         { userId: new mongoose.Types.ObjectId().toString() },
         process.env.JWT_SECRET || 'test-secret',
@@ -117,7 +117,6 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should return user\'s savings goals when they exist', async () => {
-      // Create test savings goals
       const goal1 = new SavingsGoal({
         userId: testUser._id,
         goalName: 'Vacation Fund',
@@ -147,7 +146,6 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should only return goals for the authenticated user', async () => {
-      // Create another user
       const otherUser = new User({
         email: 'other@example.com',
         googleId: 'other-google-id',
@@ -155,7 +153,6 @@ describe('SavingsGoal Routes', () => {
       });
       await otherUser.save();
 
-      // Create goal for other user
       const otherGoal = new SavingsGoal({
         userId: otherUser._id,
         goalName: 'Other User Goal',
@@ -164,7 +161,6 @@ describe('SavingsGoal Routes', () => {
       });
       await otherGoal.save();
 
-      // Create goal for test user
       const testGoal = new SavingsGoal({
         userId: testUser._id,
         goalName: 'My Goal',
@@ -184,7 +180,6 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should return 500 when database error occurs', async () => {
-      // Mock a database error by temporarily breaking the connection
       const originalFind = SavingsGoal.find;
       SavingsGoal.find = jest.fn().mockRejectedValue(new Error('Database connection failed'));
 
@@ -195,7 +190,6 @@ describe('SavingsGoal Routes', () => {
 
       expect(response.body.error).toBe('Failed to fetch savings goals');
 
-      // Restore original function
       SavingsGoal.find = originalFind;
     });
   });
@@ -245,7 +239,6 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should return 404 when savings goal exists but belongs to different user', async () => {
-      // Create another user
       const otherUser = new User({
         email: 'other@example.com',
         firstName: 'Other',
@@ -253,7 +246,6 @@ describe('SavingsGoal Routes', () => {
       });
       await otherUser.save();
 
-      // Create goal for other user
       const otherGoal = new SavingsGoal({
         userId: otherUser._id,
         goalName: 'Other User Goal',
@@ -262,7 +254,6 @@ describe('SavingsGoal Routes', () => {
       });
       await otherGoal.save();
 
-      // Try to access other user's goal
       const response = await request(app)
         .get(`/api/savings-goal/${otherGoal._id}`)
         .set('Authorization', `Bearer ${authToken}`)
@@ -270,13 +261,11 @@ describe('SavingsGoal Routes', () => {
 
       expect(response.body.error).toBe('Savings goal not found');
 
-      // Clean up
       await User.deleteOne({ _id: otherUser._id });
       await SavingsGoal.deleteOne({ _id: otherGoal._id });
     });
 
     it('should return savings goal when it exists and belongs to authenticated user', async () => {
-      // Create test savings goal
       const testGoal = new SavingsGoal({
         userId: testUser._id,
         goalName: 'Vacation Fund',
@@ -302,7 +291,6 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should return 500 when database error occurs', async () => {
-      // Mock a database error
       const originalFindOne = SavingsGoal.findOne;
       SavingsGoal.findOne = jest.fn().mockRejectedValue(new Error('Database connection failed'));
 
@@ -313,7 +301,6 @@ describe('SavingsGoal Routes', () => {
 
       expect(response.body.error).toBe('Failed to fetch savings goal');
 
-      // Restore original function
       SavingsGoal.findOne = originalFindOne;
     });
 
@@ -321,13 +308,12 @@ describe('SavingsGoal Routes', () => {
       const response = await request(app)
         .get('/api/savings-goal/invalid-id')
         .set('Authorization', `Bearer ${authToken}`)
-        .expect(500); // Mongoose will throw an error for invalid ObjectId
+        .expect(500);
 
       expect(response.body.error).toBe('Failed to fetch savings goal');
     });
 
     it('should handle savings goal with nested product data', async () => {
-      // Create test savings goal with product data
       const testGoal = new SavingsGoal({
         userId: testUser._id,
         goalName: 'New Laptop',
@@ -2400,6 +2386,318 @@ describe('SavingsGoal Routes', () => {
       expect(response.body).toHaveLength(2);
       expect(response.body[0].price).toBe('invalid-price'); // Invalid price stays as string
       expect(response.body[1].price).toBe(0); // No price should default to 0
+    });
+
+  });
+
+  describe('Edge cases for existing endpoints', () => {
+    it('should handle GET / with database error', async () => {
+      // Mock SavingsGoal.find to throw an error
+      const originalFind = SavingsGoal.find;
+      SavingsGoal.find = jest.fn().mockRejectedValue(new Error('Database error'));
+
+      const response = await request(app)
+        .get('/api/savings-goal/')
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to fetch savings goals');
+
+      // Restore original find method
+      SavingsGoal.find = originalFind;
+    });
+
+
+    it('should handle POST / with database error', async () => {
+      // Mock SavingsGoal.save to throw an error
+      const originalSave = SavingsGoal.prototype.save;
+      SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
+
+      const goalData = {
+        goalName: 'Test Goal',
+        targetAmount: 100,
+        productLink: 'https://example.com',
+        title: 'Test Product',
+        price: 100
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(goalData)
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to create savings goal');
+
+      // Restore original save method
+      SavingsGoal.prototype.save = originalSave;
+    });
+
+
+  });
+
+  describe('POST /api/savings-goal/shopify', () => {
+
+    it('should create a savings goal with valid data', async () => {
+      const goalData = {
+        goalName: 'Test Shopify Goal',
+        description: 'Test description',
+        targetAmount: 100.50,
+        product: {
+          title: 'Test Product',
+          price: 100.50,
+          source: 'Shopify Store'
+        }
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(201);
+
+      expect(response.body).toMatchObject({
+        goalName: 'Test Shopify Goal',
+        description: 'Test description',
+        targetAmount: 100.50,
+        product: {
+          title: 'Test Product',
+          price: '100.5',
+          source: 'Shopify Store'
+        },
+        source: 'shopify'
+      });
+      expect(response.body._id).toBeDefined();
+      expect(response.body.userId).toBeUndefined(); // Should not have userId
+    });
+
+    it('should create a savings goal with minimal data', async () => {
+      const goalData = {
+        goalName: 'Minimal Goal',
+        targetAmount: 50
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(201);
+
+      expect(response.body).toMatchObject({
+        goalName: 'Minimal Goal',
+        targetAmount: 50,
+        description: '',
+        source: 'shopify'
+      });
+      expect(response.body.product).toBeDefined();
+    });
+
+    it('should return 400 if goalName is missing', async () => {
+      const goalData = {
+        targetAmount: 100
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(400);
+
+      expect(response.body.error).toBe('Goal name and target amount are required');
+    });
+
+    it('should return 400 if targetAmount is missing', async () => {
+      const goalData = {
+        goalName: 'Test Goal'
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(400);
+
+      expect(response.body.error).toBe('Goal name and target amount are required');
+    });
+
+    it('should return 400 if both goalName and targetAmount are missing', async () => {
+      const goalData = {};
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(400);
+
+      expect(response.body.error).toBe('Goal name and target amount are required');
+    });
+
+    it('should handle empty goalName', async () => {
+      const goalData = {
+        goalName: '',
+        targetAmount: 100
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(400);
+
+      expect(response.body.error).toBe('Goal name and target amount are required');
+    });
+
+    it('should handle null targetAmount', async () => {
+      const goalData = {
+        goalName: 'Test Goal',
+        targetAmount: null
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(400);
+
+      expect(response.body.error).toBe('Goal name and target amount are required');
+    });
+
+    it('should handle undefined targetAmount', async () => {
+      const goalData = {
+        goalName: 'Test Goal',
+        targetAmount: undefined
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(400);
+
+      expect(response.body.error).toBe('Goal name and target amount are required');
+    });
+
+    it('should parse targetAmount as float', async () => {
+      const goalData = {
+        goalName: 'Test Goal',
+        targetAmount: '150.75'
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(201);
+
+      expect(response.body.targetAmount).toBe(150.75);
+    });
+
+    it('should handle complex product data', async () => {
+      const goalData = {
+        goalName: 'Complex Product Goal',
+        targetAmount: 200,
+        product: {
+          title: 'Complex Product',
+          price: 200,
+          source: 'Shopify Store',
+          lineItems: [
+            {
+              title: 'Item 1',
+              quantity: 2,
+              price: 50,
+              currency: 'USD'
+            },
+            {
+              title: 'Item 2',
+              quantity: 1,
+              price: 100,
+              currency: 'USD'
+            }
+          ]
+        }
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(201);
+
+      expect(response.body.product).toMatchObject({
+        title: 'Complex Product',
+        price: '200',
+        source: 'Shopify Store'
+      });
+    });
+
+    it('should handle database errors gracefully', async () => {
+      // Mock SavingsGoal.save to throw an error
+      const originalSave = SavingsGoal.prototype.save;
+      SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
+
+      const goalData = {
+        goalName: 'Test Goal',
+        targetAmount: 100
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to create savings goal');
+
+      // Restore original save method
+      SavingsGoal.prototype.save = originalSave;
+    });
+
+    it('should handle invalid targetAmount gracefully', async () => {
+      const goalData = {
+        goalName: 'Test Goal',
+        targetAmount: 'invalid-number'
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to create savings goal');
+    });
+
+    it('should handle empty product object', async () => {
+      const goalData = {
+        goalName: 'Test Goal',
+        targetAmount: 100,
+        product: {}
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(201);
+
+      expect(response.body.product).toBeDefined();
+    });
+
+    it('should handle null product', async () => {
+      const goalData = {
+        goalName: 'Test Goal',
+        targetAmount: 100,
+        product: null
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(201);
+
+      expect(response.body.product).toBeDefined();
+    });
+
+    it('should handle undefined product', async () => {
+      const goalData = {
+        goalName: 'Test Goal',
+        targetAmount: 100,
+        product: undefined
+      };
+
+      const response = await request(app)
+        .post('/api/savings-goal/shopify')
+        .send(goalData)
+        .expect(201);
+
+      expect(response.body.product).toBeDefined();
     });
   });
 });

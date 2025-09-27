@@ -118,6 +118,26 @@ app.use((req, res, next) => {
   next();
 });
 
+// Debug middleware to log all requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path} from origin: ${req.headers.origin || 'no-origin'}`);
+  console.log('Headers:', {
+    'access-control-request-method': req.headers['access-control-request-method'],
+    'access-control-request-headers': req.headers['access-control-request-headers'],
+    'content-type': req.headers['content-type'],
+    'authorization': req.headers['authorization'] ? 'present' : 'missing',
+    'user-agent': req.headers['user-agent'],
+    'referer': req.headers['referer']
+  });
+  
+  // Log CORS-related headers
+  if (req.method === 'OPTIONS') {
+    console.log('OPTIONS request detected - CORS preflight');
+  }
+  
+  next();
+});
+
 app.post('/webhook', async (req, res) => {
   try {
     await webhook(req, res);
@@ -177,7 +197,10 @@ app.get('/api/cors-test', (req, res) => {
 });
 
 app.options('/api/cors-test', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  const origin = req.headers.origin;
+  console.log('CORS Test OPTIONS request from origin:', origin);
+  
+  res.header('Access-Control-Allow-Origin', origin);
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.header('Access-Control-Allow-Credentials', 'true');

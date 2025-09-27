@@ -2,9 +2,9 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const transferSchema = new Schema({
-  transferId: { type: String },       // Unit payment ID
-  transactionId: { type: String },    // Unit transaction ID
-  batchId: { type: String },          // For batch transfers
+  transferId: { type: String },
+  transactionId: { type: String },
+  batchId: { type: String },
   amount: { type: Number, required: true },
   date: { type: Date, required: true },
   status: { type: String, required: true },
@@ -12,8 +12,8 @@ const transferSchema = new Schema({
 });
 
 const googleProductSchema = new Schema({
-  productLink: { type: String }, // Optional, from manual form or product
-  title: { type: String }, // For SerpAPI products
+  productLink: { type: String },
+  title: { type: String },
   price: { type: String },
   old_price: { type: String },
   extracted_price: { type: Number },
@@ -46,7 +46,11 @@ const bankSchema = new Schema({
 })
 
 const savingsGoalSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  userId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User', 
+    required: false
+  },
   goalName: { type: String, required: true },
   description: { type: String },
   targetAmount: { type: Number, required: true },
@@ -60,13 +64,14 @@ const savingsGoalSchema = new mongoose.Schema({
   transfers: [transferSchema],
   isPaused: { type: Boolean, default: false },
   aiGeneratedImage: String,
-  aiInsights: [{             // KEEP this - it's used for AI description enhancement
+  source: { type: String, default: 'web' },
+  aiInsights: [{
     type: String,
     content: String,
     createdAt: { type: Date, default: Date.now }
   }]
 }, {
-  timestamps: true  // This automatically adds createdAt and updatedAt fields
+  timestamps: true
 });
 
 module.exports = mongoose.model('SavingsGoal', savingsGoalSchema);
