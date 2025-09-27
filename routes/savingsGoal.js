@@ -10,6 +10,28 @@ const { generateImage, enhanceDescription } = require('../services/xaiService');
 const { searchProducts } = require('../services/webSearchService');
 const { ensureAuthenticated } = require('../middleware/auth');
 
+router.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+  console.log(`Savings Goal ${req.method} ${req.path} from origin: ${origin || 'no-origin'}`);
+  next();
+});
+
+router.options('*', (req, res) => {
+  const origin = req.headers.origin;
+  console.log('Savings Goal OPTIONS request from origin:', origin);
+  
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400');
+  res.sendStatus(200);
+});
+
 router.get('/', ensureAuthenticated, async (req, res) => {
   try {
     const goals = await SavingsGoal.find({ userId: req.user._id });
@@ -189,7 +211,6 @@ router.post('/:id/generate-image', ensureAuthenticated, async (req, res) => {
   }
 });
 
-// Fix the ai-insights endpoint with better debugging and error handling
 router.post('/:id/ai-insights', ensureAuthenticated, async (req, res) => {
   try {
     const { type, prompt } = req.body;
@@ -230,7 +251,6 @@ router.post('/:id/web-search', ensureAuthenticated, async (req, res) => {
   try {
     const { searchQuery } = req.body;
     
-    // Check if the savings goal exists and belongs to the authenticated user
     const goal = await SavingsGoal.findOne({ 
       _id: req.params.id, 
       userId: req.user._id 
@@ -240,22 +260,18 @@ router.post('/:id/web-search', ensureAuthenticated, async (req, res) => {
       return res.status(404).json({ error: 'Savings goal not found' });
     }
 
-    // Check if the goal has product data (required for web search)
     if (!goal.product || Object.keys(goal.product).length === 0) {
       return res.status(400).json({ 
         error: 'Web search is only available for product-type savings goals' 
       });
     }
 
-    // Validate that searchQuery is provided
     if (!searchQuery || searchQuery.trim() === '') {
       return res.status(400).json({ error: 'Search query is required' });
     }
 
-    // Perform the web search using the service
     const searchResults = await searchProducts(searchQuery, goal.category);
 
-    // Return the search results along with goal context
     res.json({
       results: searchResults.results,
       query: searchQuery,
@@ -282,9 +298,8 @@ router.post('/:id/save-product', ensureAuthenticated, async (req, res) => {
     const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
     if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
 
-    // Update the goal with the selected product
     goal.product = {
-      ...goal.product, // Keep existing product data
+      ...goal.product,
       title: productData.title,
       price: productData.price,
       old_price: productData.old_price,
