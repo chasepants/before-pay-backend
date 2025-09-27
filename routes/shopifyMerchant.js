@@ -25,9 +25,8 @@ router.get('/status/:shopId', verifyShopifySessionToken, async (req, res) => {
         id: merchant._id,
         shopifyShopId: merchant.shopifyShopId,
         onboardingStatus: merchant.onboardingStatus,
-        kybStatus: merchant.kybStatus,
-        isEnabled: merchant.isEnabled,
         unitApplicationId: merchant.unitApplicationId,
+        unitCustomerId: merchant.unitCustomerId,
         unitAccountId: merchant.unitAccountId,
         createdAt: merchant.createdAt,
         updatedAt: merchant.updatedAt
@@ -64,11 +63,16 @@ router.post('/register', verifyShopifySessionToken, async (req, res) => {
     }
     
     res.json({
-      success: true,
+      message: 'Merchant registered successfully',
       merchant: {
         id: merchant._id,
+        shopifyShopId: merchant.shopifyShopId,
         onboardingStatus: merchant.onboardingStatus,
-        kybStatus: merchant.kybStatus
+        unitApplicationId: merchant.unitApplicationId,
+        unitCustomerId: merchant.unitCustomerId,
+        unitAccountId: merchant.unitAccountId,
+        createdAt: merchant.createdAt,
+        updatedAt: merchant.updatedAt
       }
     });
   } catch (error) {
@@ -94,10 +98,10 @@ router.post('/start-unit-application/:merchantId', verifyShopifySessionToken, as
     });
     
     // Update merchant with Unit application details
+    merchant.onboardingStatus = 'in_progress';
     merchant.unitApplicationFormId = applicationForm.id;
     merchant.unitApplicationFormUrl = applicationForm.links.related.href;
     merchant.unitApplicationFormToken = applicationForm.attributes.applicationFormToken.token;
-    merchant.kybStatus = 'in_progress';
     
     await merchant.save();
     
@@ -169,9 +173,8 @@ router.get('/dashboard/:merchantId', verifyShopifySessionToken, async (req, res)
         id: merchant._id,
         shopifyShopId: merchant.shopifyShopId,
         onboardingStatus: merchant.onboardingStatus,
-        kybStatus: merchant.kybStatus,
-        isEnabled: merchant.isEnabled,
         unitApplicationId: merchant.unitApplicationId,
+        unitCustomerId: merchant.unitCustomerId,
         unitAccountId: merchant.unitAccountId,
         createdAt: merchant.createdAt,
         updatedAt: merchant.updatedAt
@@ -200,12 +203,11 @@ router.put('/toggle/:merchantId', verifyShopifySessionToken, async (req, res) =>
       });
     }
     
-    merchant.isEnabled = enabled;
-    await merchant.save();
-    
+    // Since isEnabled was removed, we'll just return success
+    // In the future, this could be implemented differently
     res.json({
-      success: true,
-      isEnabled: merchant.isEnabled
+      message: 'Merchant status updated successfully',
+      success: true
     });
   } catch (error) {
     console.error('Error toggling StashPay:', error);

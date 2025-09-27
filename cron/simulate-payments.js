@@ -28,7 +28,7 @@ async function simulateDailyPayments(simulationDate) {
   
   try {
     console.log('Cron job started at:', new Date().toISOString());
-    await processScheduledPayments();
+    await processScheduledPayments(simulationDate);
     console.log('Cron job completed at:', new Date().toISOString());
     console.log('Simulation completed successfully');
   } catch (error) {

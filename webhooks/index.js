@@ -2,8 +2,15 @@ const SavingsGoal = require('../models/SavingsGoal');
 const User = require('../models/User');
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const { Unit } = require('@unit-finance/unit-node-sdk');
-const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 const axios = require('axios');
+
+// Create Unit instance - can be overridden for testing
+let unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
+
+// Function to set Unit instance for testing
+function setUnitInstance(unitInstance) {
+  unit = unitInstance;
+}
 
 async function approveTestUserApplication(applicationId) {
   console.log("approving test user application");
@@ -366,9 +373,11 @@ async function handleMerchantApplicationApproved(eventData) {
     return;
   }
   
-  // Update merchant status to in_progress (application approved, waiting for customer creation)
-  merchant.onboardingStatus = 'in_progress';
-  await merchant.save();
+  // Only update status if not already completed
+  if (merchant.onboardingStatus !== 'completed') {
+    merchant.onboardingStatus = 'in_progress';
+    await merchant.save();
+  }
   
   console.log(`Merchant ${merchant.shopifyShopId} application approved with applicationId: ${applicationId}`);
 }
@@ -554,4 +563,28 @@ const webhook = async (req, res) => {
   res.status(200).json({ received: true });
 }
 
-module.exports = webhook;
+module.exports = {
+  webhook,
+  handleMerchantApplicationCreated,
+  handleMerchantApplicationApproved,
+  handleMerchantCustomerCreated,
+  handleMerchantAccountCreated,
+  setUnitInstance,
+  // Payment webhooks
+  handlePaymentCreated,
+  handlePaymentClearing,
+  handlePaymentSent,
+  handlePaymentRejected,
+  handlePaymentReturned,
+  handlePaymentCanceled,
+  // User webhooks
+  handleApplicationCreated,
+  handleApplicationApproved,
+  handleApplicationDenied,
+  handleCustomerCreated,
+  handleApplicationAwaitingDocuments,
+  handleApplicationPendingReview,
+  handleDocumentApproved,
+  // Transaction webhooks
+  handleTransactionCreated
+};

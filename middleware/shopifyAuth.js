@@ -1,33 +1,36 @@
 const jwt = require('jsonwebtoken');
+const axios = require('axios');
 require('dotenv').config();
 
 /**
  * Middleware to verify Shopify session tokens
  * This ensures requests are coming from authenticated Shopify admin users
  */
-const verifyShopifySessionToken = (req, res, next) => {
+const verifyShopifySessionToken = async (req, res, next) => {
   try {
     // Get the Authorization header
     const authHeader = req.headers.authorization;
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader) {
       return res.status(401).json({ 
-        error: 'Missing or invalid authorization header',
-        message: 'Session token required'
+        error: 'No authorization token provided'
       });
     }
     
-    // Extract the token
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Invalid token format'
+      });
+    }
+
+    const token = authHeader.substring(7);
     
     if (!token) {
       return res.status(401).json({ 
-        error: 'No session token provided',
-        message: 'Session token required'
+        error: 'Invalid token format'
       });
     }
-    
-    // Verify the token using your Shopify app secret
+
     const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
     
     if (!SHOPIFY_CLIENT_SECRET) {
@@ -37,52 +40,72 @@ const verifyShopifySessionToken = (req, res, next) => {
         message: 'Shopify API secret not configured'
       });
     }
-    
-    // Verify the JWT token
+
     const payload = jwt.verify(token, SHOPIFY_CLIENT_SECRET, { 
       algorithms: ['HS256'] 
     });
-    
-    // Extract shop and user information from the token
+
+    if (!payload.iss || !payload.iss.includes('.myshopify.com/admin')) {
+      return res.status(401).json({ 
+        error: 'Invalid token issuer'
+      });
+    }
+
     const shopInfo = {
-      shop: payload.dest, // The shop domain (e.g., "mystore.myshopify.com")
-      shopId: payload.dest?.replace('.myshopify.com', ''), // Extract shop ID
-      userId: payload.sub, // The admin user ID
-      sessionId: payload.sid, // The session ID
-      iat: payload.iat, // Issued at timestamp
-      exp: payload.exp, // Expiration timestamp
-      iss: payload.iss, // Issuer (Shopify)
-      aud: payload.aud, // Audience (your app)
+      shop: payload.dest,
+      shopId: payload.dest?.replace('.myshopify.com', ''),
+      userId: payload.sub,
+      sessionId: payload.sid,
+      iat: payload.iat,
+      exp: payload.exp,
+      iss: payload.iss,
+      aud: payload.aud,
     };
     
-    // Add shop info to the request object
     req.shopify = shopInfo;
-    
-    // Log the authenticated request (optional, for debugging)
-    console.log(`Authenticated request from shop: ${shopInfo.shop}, user: ${shopInfo.userId}`);
-    
-    next();
+
+    try {
+      const shopDomain = payload.dest.replace('https://', '').replace('http://', '');
+      const sessionResponse = await axios.get(`https://${shopDomain}/admin/api/2023-10/sessions/${payload.sid}.json`, {
+        headers: {
+          'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN || 'test-token'
+        }
+      });
+
+      req.shopifySession = sessionResponse.data.session;
+
+      console.log(`Authenticated request from shop: ${shopInfo.shop}, user: ${shopInfo.userId}`);
+      
+      next();
+    } catch (apiError) {
+      console.error('Failed to fetch session data from Shopify:', apiError.message);
+      return res.status(401).json({ 
+        error: 'Failed to verify session with Shopify'
+      });
+    }
     
   } catch (error) {
     console.error('Session token verification failed:', error.message);
     
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ 
-        error: 'Session token expired',
-        message: 'Please refresh the page and try again'
+        error: 'Token expired'
       });
     }
     
     if (error.name === 'JsonWebTokenError') {
+      if (error.message.includes('malformed') || error.message.includes('Invalid token') || error.message === 'invalid token') {
+        return res.status(401).json({ 
+          error: 'Invalid token format'
+        });
+      }
       return res.status(401).json({ 
-        error: 'Invalid session token',
-        message: 'Authentication failed'
+        error: 'Invalid token signature'
       });
     }
     
     return res.status(401).json({ 
-      error: 'Token verification failed',
-      message: 'Invalid or malformed session token'
+      error: 'Invalid token format'
     });
   }
 };

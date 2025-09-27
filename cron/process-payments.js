@@ -12,31 +12,40 @@ async function connectDB() {
   await mongoose.connect(process.env.MONGO_URI, { });
 }
 
-function todayPartsUTC() {
-  const now = new Date();
+function todayPartsUTC(date = null) {
+  const now = date ? new Date(date) : new Date();
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth();
   const d = now.getUTCDate();
-  const date = new Date(Date.UTC(y, m, d));
-  const dayOfMonth = date.getUTCDate();
+  const dateObj = new Date(Date.UTC(y, m, d));
+  const dayOfMonth = dateObj.getUTCDate();
   const daysOfWeek = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-  const dayOfWeek = daysOfWeek[date.getUTCDay()];
+  const dayOfWeek = daysOfWeek[dateObj.getUTCDay()];
   return { dayOfMonth, dayOfWeek };
 }
 
-async function processScheduledPayments() {
+async function processScheduledPayments(date = null) {
   await connectDB();
-  const { dayOfMonth, dayOfWeek } = todayPartsUTC();
+  const { dayOfMonth, dayOfWeek } = todayPartsUTC(date);
+
+  console.log(`Finding savings goals for ${dayOfMonth} ${dayOfWeek}`);
 
   const savingsGoals = await SavingsGoal.find({
     $or: [
       { "schedule.dayOfMonth": dayOfMonth },
       { "schedule.dayOfWeek": dayOfWeek }
     ]
-  }).sort({ _id: 1 }); // Sort by _id to ensure consistent order
+  }).sort({ _id: 1 });
+
+  console.log(`Processing ${savingsGoals.length} savings goals`);
 
   for (const goal of savingsGoals) {
     try {
+      if (goal.isPaused) {
+        console.log(`Skipping paused savings goal: ${goal.goalName}`);
+        continue;
+      }
+
       const { savingsAmount, plaidToken, userId } = goal;
       const user = await User.findById(userId);
       if (!user || !user.unitAccountId) continue;
@@ -66,6 +75,8 @@ async function processScheduledPayments() {
       });
 
       await goal.save();
+
+      console.log(`Created payment for ${goal.goalName}`);
     } catch (err) {
       console.error('Cron payment error:', err?.message || err);
     }

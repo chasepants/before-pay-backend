@@ -5,8 +5,8 @@ const UNIT_API_BASE = process.env.UNIT_API_BASE || 'https://api.s.unit.sh';
 const UNIT_API_TOKEN = process.env.UNIT_API_KEY;
 
 class UnitMerchantService {
-  constructor() {
-    this.apiClient = axios.create({
+  constructor(axiosInstance = null) {
+    this.apiClient = axiosInstance || axios.create({
       baseURL: UNIT_API_BASE,
       headers: {
         'Authorization': `Bearer ${UNIT_API_TOKEN}`,
@@ -84,7 +84,7 @@ class UnitMerchantService {
             customer: {
               data: {
                 type: 'customer',
-                id: unitApplicationId // This should be the customer ID from the approved application
+                id: unitApplicationId
               }
             }
           }
@@ -105,11 +105,10 @@ class UnitMerchantService {
 
 }
 
-// Create singleton instance
 const unitMerchantService = new UnitMerchantService();
 
-// Export individual functions for easier testing
 module.exports = {
+  UnitMerchantService,
   createUnitApplicationForm: (merchantData) => unitMerchantService.createApplicationForm(merchantData),
   getUnitApplicationForm: (applicationFormId) => unitMerchantService.getApplicationForm(applicationFormId),
   createUnitDepositAccount: (merchantData) => unitMerchantService.createDepositAccount(merchantData)
