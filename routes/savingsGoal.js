@@ -233,6 +233,11 @@ router.post('/create-guest-goal', async (req, res) => {
       return res.status(401).json({ error: 'Guest session expired' });
     }
     
+    const monthlyInstallments = 4;
+    const amountPerInstallment = parseFloat(targetAmount) / monthlyInstallments;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() + 1);
+
     const savingsGoal = new SavingsGoal({
       goalName,
       description: description || '',
@@ -242,9 +247,11 @@ router.post('/create-guest-goal', async (req, res) => {
       plaidToken: guestSession.plaidToken,
       source: 'guest-checkout',
       schedule: {
+        startDate,
+        interval: 'monthly',
         frequency: 'monthly',
-        installments: 4,
-        amountPerInstallment: parseFloat(targetAmount) / 4
+        installments: monthlyInstallments,
+        amountPerInstallment
       }
     });
 

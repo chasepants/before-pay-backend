@@ -2955,7 +2955,7 @@ describe('SavingsGoal Routes', () => {
         }).save();
       });
 
-      it('should create guest savings goal successfully', async () => {
+      it('should create guest savings goal successfully and persist schedule and Shopify identifiers', async () => {
         const goalData = {
           guestToken: 'test-guest-token',
           goalName: 'Test Guest Goal',
@@ -2963,7 +2963,12 @@ describe('SavingsGoal Routes', () => {
           product: {
             name: 'Test Product',
             price: 1000,
-            image: 'https://example.com/image.jpg'
+            image: 'https://example.com/image.jpg',
+            // Shopify identifiers should pass through to nested product
+            shopifyProductId: 'gid://shopify/Product/1234567890',
+            shopifyVariantId: 'gid://shopify/ProductVariant/111',
+            handle: 'test-product',
+            // image also mapped
           }
         };
 
@@ -2977,6 +2982,21 @@ describe('SavingsGoal Routes', () => {
         expect(response.body.savingsGoal.source).toBe('guest-checkout');
         expect(response.body.savingsGoal.guestEmail).toBe('test@example.com');
         expect(response.body.savingsGoal.userId).toBeUndefined();
+
+        // Schedule assertions (4 monthly installments, amount per installment = 250)
+        expect(response.body.savingsGoal.schedule).toBeDefined();
+        expect(response.body.savingsGoal.schedule.frequency).toBe('monthly');
+        expect(response.body.savingsGoal.schedule.interval).toBe('monthly');
+        expect(response.body.savingsGoal.schedule.installments).toBe(4);
+        expect(response.body.savingsGoal.schedule.amountPerInstallment).toBeCloseTo(250);
+        expect(new Date(response.body.savingsGoal.schedule.startDate).getTime()).toBeGreaterThan(Date.now() - 5 * 60 * 1000);
+
+        // Shopify identifier assertions on product
+        expect(response.body.savingsGoal.product).toBeDefined();
+        expect(response.body.savingsGoal.product.shopifyProductId).toBe('gid://shopify/Product/1234567890');
+        expect(response.body.savingsGoal.product.shopifyVariantId).toBe('gid://shopify/ProductVariant/111');
+        expect(response.body.savingsGoal.product.handle).toBe('test-product');
+        expect(response.body.savingsGoal.product.image).toBe('https://example.com/image.jpg');
       });
 
       it('should return 400 if required fields are missing', async () => {

@@ -28,14 +28,23 @@ const googleProductSchema = new Schema({
   badge: { type: String },
   tag: { type: String },
   delivery: { type: String },
-  description: { type: String }
+  description: { type: String },
+  // Shopify-specific identifiers for guest checkout purchases
+  shopifyProductId: { type: String },
+  shopifyVariantId: { type: String },
+  handle: { type: String },
+  image: { type: String }
 });
 
 const scheduleSchema = new Schema({
   startDate: Date,
   interval: String,
   dayOfMonth: Number,
-  dayOfWeek: String
+  dayOfWeek: String,
+  // Additional fields to capture installment plan
+  frequency: { type: String },
+  installments: { type: Number },
+  amountPerInstallment: { type: Number }
 })
 
 const bankSchema = new Schema({
