@@ -12,6 +12,7 @@ const { searchProducts } = require('../services/webSearchService');
 const { ensureAuthenticated } = require('../middleware/auth');
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
 const emailService = require('../services/emailService');
+const PlaidService = require('../services/plaidService');
 
 const verificationCodeSchema = new mongoose.Schema({
   email: { type: String, required: true, index: true },
@@ -186,9 +187,9 @@ router.post('/verify-code', async (req, res) => {
 
 router.post('/connect-plaid', async (req, res) => {
   try {
-    const { guestToken, plaidToken } = req.body;
+    const { guestToken, plaidToken, publicToken, accountId } = req.body;
     
-    if (!guestToken || !plaidToken) {
+    if (!guestToken) {
       return res.status(400).json({ error: 'Guest token and Plaid token are required' });
     }
 
@@ -202,7 +203,22 @@ router.post('/connect-plaid', async (req, res) => {
       return res.status(401).json({ error: 'Guest session expired' });
     }
     
-    guestSession.plaidToken = plaidToken;
+    // Use PlaidService to exchange publicToken or store provided plaidToken
+    if (publicToken) {
+      try {
+        const plaidService = new PlaidService();
+        const exchangeResp = await plaidService.exchangePublicToken(publicToken);
+        guestSession.plaidToken = exchangeResp.data.access_token;
+        if (accountId) guestSession.plaidAccountId = accountId;
+      } catch (ex) {
+        console.error('Plaid exchange failed:', ex.message);
+        return res.status(500).json({ error: 'Failed to exchange Plaid token' });
+      }
+    } else if (plaidToken) {
+      guestSession.plaidToken = plaidToken;
+    } else {
+      return res.status(400).json({ error: 'Guest token and Plaid token are required' });
+    }
     await guestSession.save();
     
     res.status(200).json({
@@ -212,6 +228,84 @@ router.post('/connect-plaid', async (req, res) => {
   } catch (error) {
     console.error('Error connecting Plaid:', error);
     res.status(500).json({ error: 'Failed to connect Plaid account' });
+  }
+});
+
+router.post('/plaid/connect-sandbox', async (req, res) => {
+  try {
+    const { guestToken } = req.body;
+    if (!guestToken) return res.status(400).json({ error: 'Guest token is required' });
+
+    const guestSession = await GuestSession.findOne({ guestToken });
+    if (!guestSession) {
+      return res.status(401).json({ error: 'Invalid or expired guest session' });
+    }
+    if (new Date() > guestSession.expiresAt) {
+      await GuestSession.deleteOne({ _id: guestSession._id });
+      return res.status(401).json({ error: 'Guest session expired' });
+    }
+
+    try {
+      const plaidService = new PlaidService();
+
+      const publicTokenResponse = await plaidService.plaidClient.sandboxPublicTokenCreate({
+        institution_id: 'ins_109508',
+        initial_products: ['auth', 'transactions'],
+        options: {
+          webhook: 'https://api-sandbox.gostashpay.com/webhooks/plaid'
+        }
+      });
+      
+      const exchangeResponse = await plaidService.exchangePublicToken(publicTokenResponse.data.public_token);
+      
+      guestSession.plaidToken = exchangeResponse.data.access_token;
+      await guestSession.save();
+      
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Plaid sandbox connected successfully',
+        accessToken: exchangeResponse.data.access_token
+      });
+    } catch (e) {
+      console.error('Plaid sandbox connect error:', e.message);
+      return res.status(500).json({ error: `Failed to connect Plaid (sandbox): ${e.message}` });
+    }
+  } catch (e) {
+    console.error('Plaid sandbox connect error:', e.message);
+    return res.status(500).json({ error: 'Failed to connect Plaid (sandbox)' });
+  }
+});
+
+router.post('/plaid/create-link-token', async (req, res) => {
+  try {
+    const { guestToken } = req.body;
+    if (!guestToken) return res.status(400).json({ error: 'Guest token is required' });
+
+    const guestSession = await GuestSession.findOne({ guestToken });
+    if (!guestSession) {
+      return res.status(401).json({ error: 'Invalid or expired guest session' });
+    }
+    if (new Date() > guestSession.expiresAt) {
+      await GuestSession.deleteOne({ _id: guestSession._id });
+      return res.status(401).json({ error: 'Guest session expired' });
+    }
+
+    try {
+      const plaidService = new PlaidService();
+      const linkTokenResponse = await plaidService.createLinkToken(guestSession.email, 'StashPay Guest Checkout');
+      
+      return res.status(200).json({
+        success: true,
+        linkToken: linkTokenResponse.data.link_token,
+        expiration: linkTokenResponse.data.expiration
+      });
+    } catch (e) {
+      console.error('Plaid link token creation error:', e.message);
+      return res.status(500).json({ error: `Failed to create Plaid link token: ${e.message}` });
+    }
+  } catch (e) {
+    console.error('Plaid link token error:', e.message);
+    return res.status(500).json({ error: 'Failed to create Plaid link token' });
   }
 });
 
