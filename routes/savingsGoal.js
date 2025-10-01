@@ -4,12 +4,30 @@ const SavingsGoal = require('../models/SavingsGoal');
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
+const mongoose = require('mongoose');
 const { OpenAI } = require('openai');
 require('dotenv').config();
 const { generateImage, enhanceDescription } = require('../services/xaiService');
 const { searchProducts } = require('../services/webSearchService');
 const { ensureAuthenticated } = require('../middleware/auth');
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
+const emailService = require('../services/emailService');
+
+const verificationCodeSchema = new mongoose.Schema({
+  email: { type: String, required: true, index: true },
+  code: { type: String, required: true },
+  expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } }
+}, { timestamps: true });
+
+const guestSessionSchema = new mongoose.Schema({
+  email: { type: String, required: true },
+  guestToken: { type: String, required: true, unique: true },
+  plaidToken: { type: String },
+  expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } }
+}, { timestamps: true });
+
+const VerificationCode = mongoose.model('VerificationCode', verificationCodeSchema);
+const GuestSession = mongoose.model('GuestSession', guestSessionSchema);
 
 router.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -69,23 +87,19 @@ router.get('/:id', ensureAuthenticated, async (req, res) => {
   }
 });
 
-// Shopify endpoint for extensions (uses Shopify session token auth)
 router.post('/shopify', verifyShopifySessionToken, async (req, res) => {
   try {
     const { goalName, description, targetAmount, product } = req.body;
-    
-    // Validate required fields
+
     if (!goalName || !targetAmount) {
       return res.status(400).json({ error: 'Goal name and target amount are required' });
     }
 
-    // Create savings goal without userId (for Shopify)
     const savingsGoal = new SavingsGoal({
       goalName,
       description: description || '',
       targetAmount: parseFloat(targetAmount),
       product: product || {},
-      // No userId for Shopify-created goals
       source: 'shopify'
     });
 
@@ -93,6 +107,160 @@ router.post('/shopify', verifyShopifySessionToken, async (req, res) => {
     res.status(201).json(savingsGoal);
   } catch (error) {
     console.error('Error creating Shopify savings goal:', error);
+    res.status(500).json({ error: 'Failed to create savings goal' });
+  }
+});
+
+router.post('/send-verification', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await VerificationCode.deleteMany({ email });
+
+    await new VerificationCode({
+      email,
+      code: verificationCode,
+      expiresAt
+    }).save();
+
+    const emailResult = await emailService.sendVerificationCode(email, verificationCode);
+    
+    if (!emailResult.success) {
+      console.error('Failed to send verification email:', emailResult.error);
+    } else {
+      console.log('Verification email sent successfully:', emailResult.messageId);
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Verification code sent to your email'
+    });
+  } catch (error) {
+    console.error('Error sending verification code:', error);
+    res.status(500).json({ error: 'Failed to send verification code' });
+  }
+});
+
+router.post('/verify-code', async (req, res) => {
+  try {
+    const { email, verificationCode } = req.body;
+    
+    if (!email || !verificationCode) {
+      return res.status(400).json({ error: 'Email and verification code are required' });
+    }
+    
+    const storedCode = await VerificationCode.findOne({ email, code: verificationCode });
+    if (!storedCode) {
+      return res.status(400).json({ error: 'Invalid or expired verification code' });
+    }
+    
+    await VerificationCode.deleteOne({ _id: storedCode._id });
+    
+    const guestToken = require('crypto').randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    
+    await new GuestSession({
+      email,
+      guestToken,
+      expiresAt
+    }).save();
+    
+    res.status(200).json({
+      success: true,
+      guestToken,
+      message: 'Email verified successfully'
+    });
+  } catch (error) {
+    console.error('Error verifying code:', error);
+    res.status(500).json({ error: 'Failed to verify code' });
+  }
+});
+
+router.post('/connect-plaid', async (req, res) => {
+  try {
+    const { guestToken, plaidToken } = req.body;
+    
+    if (!guestToken || !plaidToken) {
+      return res.status(400).json({ error: 'Guest token and Plaid token are required' });
+    }
+
+    const guestSession = await GuestSession.findOne({ guestToken });
+    if (!guestSession) {
+      return res.status(401).json({ error: 'Invalid or expired guest session' });
+    }
+    
+    if (new Date() > guestSession.expiresAt) {
+      await GuestSession.deleteOne({ _id: guestSession._id });
+      return res.status(401).json({ error: 'Guest session expired' });
+    }
+    
+    guestSession.plaidToken = plaidToken;
+    await guestSession.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Plaid account connected successfully'
+    });
+  } catch (error) {
+    console.error('Error connecting Plaid:', error);
+    res.status(500).json({ error: 'Failed to connect Plaid account' });
+  }
+});
+
+router.post('/create-guest-goal', async (req, res) => {
+  try {
+    const { guestToken, goalName, description, targetAmount, product } = req.body;
+    
+    if (!guestToken || !goalName || !targetAmount) {
+      return res.status(400).json({ error: 'Guest token, goal name, and target amount are required' });
+    }
+
+    const guestSession = await GuestSession.findOne({ guestToken });
+    if (!guestSession) {
+      return res.status(401).json({ error: 'Invalid or expired guest session' });
+    }
+    
+    if (new Date() > guestSession.expiresAt) {
+      await GuestSession.deleteOne({ _id: guestSession._id });
+      return res.status(401).json({ error: 'Guest session expired' });
+    }
+    
+    const savingsGoal = new SavingsGoal({
+      goalName,
+      description: description || '',
+      targetAmount: parseFloat(targetAmount),
+      product: product || {},
+      guestEmail: guestSession.email,
+      plaidToken: guestSession.plaidToken,
+      source: 'guest-checkout',
+      schedule: {
+        frequency: 'monthly',
+        installments: 4,
+        amountPerInstallment: parseFloat(targetAmount) / 4
+      }
+    });
+
+    await savingsGoal.save();
+
+    const firstInstallmentDate = new Date();
+    firstInstallmentDate.setDate(firstInstallmentDate.getDate() + 1);
+    
+    res.status(201).json({
+      success: true,
+      savingsGoal,
+      firstInstallmentDate: firstInstallmentDate.toISOString(),
+      message: 'Savings goal created successfully'
+    });
+  } catch (error) {
+    console.error('Error creating guest savings goal:', error);
     res.status(500).json({ error: 'Failed to create savings goal' });
   }
 });

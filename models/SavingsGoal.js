@@ -65,6 +65,7 @@ const savingsGoalSchema = new mongoose.Schema({
   isPaused: { type: Boolean, default: false },
   aiGeneratedImage: String,
   source: { type: String, default: 'web' },
+  guestEmail: { type: String },
   aiInsights: [{
     type: String,
     content: String,

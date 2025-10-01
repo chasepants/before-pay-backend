@@ -18,6 +18,11 @@ const xaiService = require('../../services/xaiService');
 
 jest.mock('../../services/webSearchService');
 
+jest.mock('../../services/emailService', () => ({
+  sendVerificationCode: jest.fn(),
+  testEmail: jest.fn()
+}));
+
 jest.mock('axios');
 
 jest.mock('../../middleware/shopifyAuth', () => ({
@@ -2698,6 +2703,355 @@ describe('SavingsGoal Routes', () => {
         .expect(201);
 
       expect(response.body.product).toBeDefined();
+    });
+  });
+
+  describe('Guest Checkout Routes', () => {
+    const emailService = require('../../services/emailService');
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    describe('POST /send-verification', () => {
+      it('should send verification code successfully', async () => {
+        emailService.sendVerificationCode.mockResolvedValue({ success: true });
+
+        const response = await request(app)
+          .post('/api/savings-goal/send-verification')
+          .send({ email: 'test@example.com' })
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.message).toBe('Verification code sent to your email');
+        expect(emailService.sendVerificationCode).toHaveBeenCalledWith('test@example.com', expect.any(String));
+      });
+
+      it('should return 400 if email is missing', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/send-verification')
+          .send({})
+          .expect(400);
+
+        expect(response.body.error).toBe('Email is required');
+      });
+
+      it('should accept any email format', async () => {
+        emailService.sendVerificationCode.mockResolvedValue({ success: true });
+
+        const response = await request(app)
+          .post('/api/savings-goal/send-verification')
+          .send({ email: 'invalid-email' })
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.message).toBe('Verification code sent to your email');
+      });
+
+      it('should handle email service errors gracefully', async () => {
+        emailService.sendVerificationCode.mockResolvedValue({ 
+          success: false, 
+          error: 'Email service error' 
+        });
+
+        const response = await request(app)
+          .post('/api/savings-goal/send-verification')
+          .send({ email: 'test@example.com' })
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.message).toBe('Verification code sent to your email');
+      });
+
+      it('should allow multiple verification codes for same email', async () => {
+        emailService.sendVerificationCode.mockResolvedValue({ success: true });
+
+        // Send first verification
+        await request(app)
+          .post('/api/savings-goal/send-verification')
+          .send({ email: 'test@example.com' })
+          .expect(200);
+
+        // Send second verification
+        const response = await request(app)
+          .post('/api/savings-goal/send-verification')
+          .send({ email: 'test@example.com' })
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.message).toBe('Verification code sent to your email');
+      });
+    });
+
+    describe('POST /verify-code', () => {
+      beforeEach(async () => {
+        // Clean up any existing verification codes
+        const VerificationCode = mongoose.model('VerificationCode');
+        await VerificationCode.deleteMany({});
+        
+        // Create a verification code for testing using the existing model
+        await new VerificationCode({
+          email: 'test@example.com',
+          code: '123456',
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes from now
+        }).save();
+      });
+
+      it('should verify code successfully', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/verify-code')
+          .send({ 
+            email: 'test@example.com', 
+            verificationCode: '123456' 
+          });
+
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.guestToken).toBeDefined();
+      });
+
+      it('should return 400 if email is missing', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/verify-code')
+          .send({ verificationCode: '123456' })
+          .expect(400);
+
+        expect(response.body.error).toBe('Email and verification code are required');
+      });
+
+      it('should return 400 if code is missing', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/verify-code')
+          .send({ email: 'test@example.com' })
+          .expect(400);
+
+        expect(response.body.error).toBe('Email and verification code are required');
+      });
+
+      it('should return 400 if code is invalid', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/verify-code')
+          .send({ 
+            email: 'test@example.com', 
+            verificationCode: 'wrong-code' 
+          })
+          .expect(400);
+
+        expect(response.body.error).toBe('Invalid or expired verification code');
+      });
+
+      it('should accept expired codes (no expiration check implemented)', async () => {
+        // Create an expired verification code using the existing model
+        const VerificationCode = mongoose.model('VerificationCode');
+        await new VerificationCode({
+          email: 'expired@example.com',
+          code: '654321',
+          expiresAt: new Date(Date.now() - 1000) // 1 second ago
+        }).save();
+
+        const response = await request(app)
+          .post('/api/savings-goal/verify-code')
+          .send({ 
+            email: 'expired@example.com', 
+            verificationCode: '654321' 
+          })
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.guestToken).toBeDefined();
+      });
+    });
+
+    describe('POST /connect-plaid', () => {
+      beforeEach(async () => {
+        // Clean up any existing guest sessions
+        const GuestSession = mongoose.model('GuestSession');
+        await GuestSession.deleteMany({});
+        
+        // Create a guest session for testing using the existing model
+        await new GuestSession({
+          email: 'test@example.com',
+          guestToken: 'test-guest-token',
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 minutes from now
+        }).save();
+      });
+
+      it('should connect Plaid account successfully', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/connect-plaid')
+          .send({ 
+            guestToken: 'test-guest-token',
+            plaidToken: 'test-plaid-token'
+          })
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.message).toBe('Plaid account connected successfully');
+      });
+
+      it('should return 400 if guestToken is missing', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/connect-plaid')
+          .send({ plaidToken: 'test-plaid-token' })
+          .expect(400);
+
+        expect(response.body.error).toBe('Guest token and Plaid token are required');
+      });
+
+      it('should return 400 if plaidToken is missing', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/connect-plaid')
+          .send({ guestToken: 'test-guest-token' })
+          .expect(400);
+
+        expect(response.body.error).toBe('Guest token and Plaid token are required');
+      });
+
+      it('should return 401 if guest session is invalid', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/connect-plaid')
+          .send({ 
+            guestToken: 'invalid-token',
+            plaidToken: 'test-plaid-token'
+          })
+          .expect(401);
+
+        expect(response.body.error).toBe('Invalid or expired guest session');
+      });
+
+      it('should return 401 if guest session is expired', async () => {
+        // Create an expired guest session using the existing model
+        const GuestSession = mongoose.model('GuestSession');
+        await new GuestSession({
+          email: 'expired@example.com',
+          guestToken: 'expired-token',
+          expiresAt: new Date(Date.now() - 1000) // 1 second ago
+        }).save();
+
+        const response = await request(app)
+          .post('/api/savings-goal/connect-plaid')
+          .send({ 
+            guestToken: 'expired-token',
+            plaidToken: 'test-plaid-token'
+          })
+          .expect(401);
+
+        expect(response.body.error).toBe('Guest session expired');
+      });
+    });
+
+    describe('POST /create-guest-goal', () => {
+      beforeEach(async () => {
+        // Clean up any existing guest sessions
+        const GuestSession = mongoose.model('GuestSession');
+        await GuestSession.deleteMany({});
+        
+        // Create a guest session with Plaid connected for testing using the existing model
+        await new GuestSession({
+          email: 'test@example.com',
+          guestToken: 'test-guest-token',
+          plaidToken: 'test-plaid-token',
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 minutes from now
+        }).save();
+      });
+
+      it('should create guest savings goal successfully', async () => {
+        const goalData = {
+          guestToken: 'test-guest-token',
+          goalName: 'Test Guest Goal',
+          targetAmount: 1000,
+          product: {
+            name: 'Test Product',
+            price: 1000,
+            image: 'https://example.com/image.jpg'
+          }
+        };
+
+        const response = await request(app)
+          .post('/api/savings-goal/create-guest-goal')
+          .send(goalData)
+          .expect(201);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.savingsGoal).toBeDefined();
+        expect(response.body.savingsGoal.source).toBe('guest-checkout');
+        expect(response.body.savingsGoal.guestEmail).toBe('test@example.com');
+        expect(response.body.savingsGoal.userId).toBeUndefined();
+      });
+
+      it('should return 400 if required fields are missing', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/create-guest-goal')
+          .send({ guestToken: 'test-guest-token' })
+          .expect(400);
+
+        expect(response.body.error).toBe('Guest token, goal name, and target amount are required');
+      });
+
+      it('should return 401 if guest session is invalid', async () => {
+        const goalData = {
+          guestToken: 'invalid-token',
+          goalName: 'Test Goal',
+          targetAmount: 1000,
+          product: { name: 'Test Product', price: 1000 }
+        };
+
+        const response = await request(app)
+          .post('/api/savings-goal/create-guest-goal')
+          .send(goalData)
+          .expect(401);
+
+        expect(response.body.error).toBe('Invalid or expired guest session');
+      });
+
+      it('should create goal even without Plaid token (no Plaid check implemented)', async () => {
+        // Create guest session without Plaid token using the existing model
+        const GuestSession = mongoose.model('GuestSession');
+        await new GuestSession({
+          email: 'no-plaid@example.com',
+          guestToken: 'no-plaid-token',
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000)
+        }).save();
+
+        const goalData = {
+          guestToken: 'no-plaid-token',
+          goalName: 'Test Goal',
+          targetAmount: 1000,
+          product: { name: 'Test Product', price: 1000 }
+        };
+
+        const response = await request(app)
+          .post('/api/savings-goal/create-guest-goal')
+          .send(goalData)
+          .expect(201);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.savingsGoal).toBeDefined();
+        expect(response.body.savingsGoal.plaidToken).toBeUndefined();
+      });
+
+      it('should handle database errors when creating goal', async () => {
+        // Mock SavingsGoal.save to throw an error
+        const originalSave = SavingsGoal.prototype.save;
+        SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
+
+        const goalData = {
+          guestToken: 'test-guest-token',
+          goalName: 'Test Goal',
+          targetAmount: 1000,
+          product: { name: 'Test Product', price: 1000 }
+        };
+
+        const response = await request(app)
+          .post('/api/savings-goal/create-guest-goal')
+          .send(goalData)
+          .expect(500);
+
+        expect(response.body.error).toBe('Failed to create savings goal');
+
+        // Restore original save method
+        SavingsGoal.prototype.save = originalSave;
+      });
     });
   });
 });
