@@ -12,10 +12,21 @@ const { Buffer } = require('node:buffer');
 
 module.exports = async function shopifyPubsub(req, res) {
   try {
+    // Support both JSON-parsed bodies and raw Buffer bodies
+    let body = req.body;
+    if (Buffer.isBuffer(body)) {
+      try {
+        body = JSON.parse(body.toString('utf8'));
+      } catch (e) {
+        console.error('Failed to parse raw Pub/Sub body buffer:', e.message);
+        return res.status(400).json({ error: 'Invalid Pub/Sub payload' });
+      }
+    }
+
     // Optional shared-secret verification
     const configuredToken = process.env.PUBSUB_VERIFICATION_TOKEN;
     const headerToken = req.headers['x-pubsub-token'];
-    const attrToken = req.body?.message?.attributes?.token;
+    const attrToken = body?.message?.attributes?.token;
     if (configuredToken) {
       if (!(headerToken && headerToken === configuredToken) && !(attrToken && attrToken === configuredToken)) {
         console.warn('Pub/Sub push rejected due to invalid verification token');
@@ -23,7 +34,7 @@ module.exports = async function shopifyPubsub(req, res) {
       }
     }
 
-    const pushMessage = req.body?.message;
+    const pushMessage = body?.message;
     if (!pushMessage || !pushMessage.data) {
       console.error('Invalid Pub/Sub push: missing message/data');
       return res.status(400).json({ error: 'Invalid Pub/Sub payload' });
@@ -43,7 +54,7 @@ module.exports = async function shopifyPubsub(req, res) {
     console.log('Received Pub/Sub push:', {
       messageId: pushMessage.messageId,
       attributes,
-      subscription: req.body.subscription,
+      subscription: body.subscription,
       isJson: typeof payload === 'object'
     });
 

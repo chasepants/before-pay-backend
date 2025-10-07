@@ -158,6 +158,16 @@ app.post('/webhooks/shopify-pubsub', async (req, res) => {
   }
 });
 
+// Alias under /api to match existing calling patterns
+app.post('/api/webhooks/shopify-pubsub', async (req, res) => {
+  try {
+    await shopifyPubsub(req, res);
+  } catch (error) {
+    console.error('Pub/Sub route error (alias):', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.use(passport.initialize());
 
 app.options('/api/*', (req, res) => {
