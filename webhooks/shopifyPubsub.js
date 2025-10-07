@@ -52,6 +52,7 @@ module.exports = async function shopifyPubsub(req, res) {
     }
 
     const pushMessage = body?.message;
+    console.log(body);
     if (!pushMessage || !pushMessage.data) {
       console.error('Invalid Pub/Sub push: missing message/data');
       return res.status(400).json({ error: 'Invalid Pub/Sub payload' });
