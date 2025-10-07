@@ -29,7 +29,6 @@ class PlaidService {
     }
   }
 
-  // Create a link token for Plaid Link
   async createLinkToken(userId, clientName = 'BeforePay') {
     try {
       const response = await this.plaidClient.linkTokenCreate({
@@ -51,7 +50,6 @@ class PlaidService {
     }
   }
 
-  // Exchange public token for access token
   async exchangePublicToken(publicToken) {
     try {
       const response = await this.plaidClient.itemPublicTokenExchange({
@@ -64,7 +62,6 @@ class PlaidService {
     }
   }
 
-  // Create a processor token for a specific account
   async createProcessorToken(accessToken, accountId, processor = 'unit') {
     try {
       const response = await this.plaidClient.processorTokenCreate({
@@ -79,7 +76,6 @@ class PlaidService {
     }
   }
 
-  // Get account information
   async getAccounts(accessToken) {
     try {
       const response = await this.plaidClient.accountsGet({
@@ -92,7 +88,6 @@ class PlaidService {
     }
   }
 
-  // Get account balance
   async getAccountBalance(accessToken, accountIds = null) {
     try {
       const request = {
@@ -110,7 +105,6 @@ class PlaidService {
     }
   }
 
-  // Get transactions for an account
   async getTransactions(accessToken, startDate, endDate, accountIds = null) {
     try {
       const request = {
@@ -134,7 +128,6 @@ class PlaidService {
     }
   }
 
-  // Get item information
   async getItem(accessToken) {
     try {
       const response = await this.plaidClient.itemGet({
@@ -147,7 +140,6 @@ class PlaidService {
     }
   }
 
-  // Invalidate access token
   async invalidateAccessToken(accessToken) {
     try {
       const response = await this.plaidClient.itemAccessTokenInvalidate({
@@ -160,7 +152,6 @@ class PlaidService {
     }
   }
 
-  // Get institution by ID
   async getInstitution(institutionId, countryCodes = ['US']) {
     try {
       const response = await this.plaidClient.institutionsGetById({
@@ -177,7 +168,6 @@ class PlaidService {
     }
   }
 
-  // Search institutions
   async searchInstitutions(query, products = ['auth'], countryCodes = ['US']) {
     try {
       const response = await this.plaidClient.institutionsSearch({
@@ -195,7 +185,6 @@ class PlaidService {
     }
   }
 
-  // Get webhook verification key
   async getWebhookVerificationKey(keyId) {
     try {
       const response = await this.plaidClient.webhookVerificationKeyGet({

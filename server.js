@@ -8,6 +8,7 @@ const authRoutes = require('./routes/auth');
 const savingsGoalRoutes = require('./routes/savingsGoal');
 const bankRoutes = require('./routes/bank');
 const webhook = require('./webhooks/index');
+const shopifyPubsub = require('./webhooks/shopifyPubsub');
 const { processScheduledPayments } = require('./cron/process-payments');
 const launchRoutes = require('./routes/launch');
 const shopifyMerchantRoutes = require('./routes/shopifyMerchant');
@@ -143,6 +144,16 @@ app.post('/webhook', async (req, res) => {
     await webhook(req, res);
   } catch (error) {
     console.error('Webhook invocation error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Google Pub/Sub push endpoint (Shopify -> Pub/Sub -> Vercel)
+app.post('/webhooks/shopify-pubsub', async (req, res) => {
+  try {
+    await shopifyPubsub(req, res);
+  } catch (error) {
+    console.error('Pub/Sub route error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -11,12 +11,10 @@ describe('PlaidService', () => {
   let mockPlaidClient;
 
   beforeEach(() => {
-    // Reset environment variables
     process.env.PLAID_CLIENT_ID = 'test_client_id';
     process.env.PLAID_SECRET = 'test_secret';
     process.env.PLAID_ENV = 'sandbox';
 
-    // Mock the PlaidApi instance
     mockPlaidClient = {
       linkTokenCreate: jest.fn(),
       itemPublicTokenExchange: jest.fn(),
@@ -32,7 +30,6 @@ describe('PlaidService', () => {
       sandboxPublicTokenCreate: jest.fn()
     };
 
-    // Mock the PlaidApi constructor
     const { PlaidApi } = require('plaid');
     PlaidApi.mockImplementation(() => mockPlaidClient);
 
