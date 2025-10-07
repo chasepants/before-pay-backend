@@ -1,18 +1,10 @@
 const { Buffer } = require('node:buffer');
+const { OAuth2Client } = require('google-auth-library');
+const oauthClient = new OAuth2Client();
 
-// Google Pub/Sub push message format:
-// {
-//   message: {
-//     data: base64String,
-//     messageId: string,
-//     attributes: { [key: string]: string }
-//   },
-//   subscription: string
-// }
 
 module.exports = async function shopifyPubsub(req, res) {
   try {
-    // Support both JSON-parsed bodies and raw Buffer bodies
     let body = req.body;
     if (Buffer.isBuffer(body)) {
       try {
@@ -23,14 +15,39 @@ module.exports = async function shopifyPubsub(req, res) {
       }
     }
 
-    // Optional shared-secret verification
-    const configuredToken = process.env.PUBSUB_VERIFICATION_TOKEN;
-    const headerToken = req.headers['x-pubsub-token'];
-    const attrToken = body?.message?.attributes?.token;
-    if (configuredToken) {
-      if (!(headerToken && headerToken === configuredToken) && !(attrToken && attrToken === configuredToken)) {
-        console.warn('Pub/Sub push rejected due to invalid verification token');
-        return res.status(401).json({ error: 'Unauthorized' });
+    const authorizationHeader = req.headers['authorization'];
+    const jwtAudience = "https://api-sandbox.gostashpay.com/api/webhooks/shopify-pubsub";
+    const expectedServiceAccount = process.env.PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL;
+
+    if (authorizationHeader && authorizationHeader.startsWith('Bearer ')) {
+      try {
+        const idToken = authorizationHeader.split(' ')[1];
+        const ticket = await oauthClient.verifyIdToken({ idToken, audience: jwtAudience });
+        const claim = ticket.getPayload();
+
+        // Optional extra checks recommended by Google
+        if (expectedServiceAccount && claim.email !== expectedServiceAccount) {
+          console.warn('Pub/Sub JWT email mismatch', { claimEmail: claim.email, expectedServiceAccount });
+          return res.status(401).json({ error: 'Unauthorized' });
+        }
+        if (claim.iss !== 'https://accounts.google.com' && claim.iss !== 'accounts.google.com') {
+          console.warn('Pub/Sub JWT issuer mismatch', { iss: claim.iss });
+          return res.status(401).json({ error: 'Unauthorized' });
+        }
+      } catch (e) {
+        console.error('Pub/Sub JWT verification failed:', e.message);
+        return res.status(400).send('Invalid token');
+      }
+    } else {
+      // Fallback: shared secret via header or attribute (useful for local tests without JWT)
+      const configuredToken = process.env.PUBSUB_VERIFICATION_TOKEN;
+      const headerToken = req.headers['x-pubsub-token'];
+      const attrToken = body?.message?.attributes?.token;
+      if (configuredToken) {
+        if (!(headerToken && headerToken === configuredToken) && !(attrToken && attrToken === configuredToken)) {
+          console.warn('Pub/Sub push rejected due to missing/invalid shared token');
+          return res.status(401).json({ error: 'Unauthorized' });
+        }
       }
     }
 
