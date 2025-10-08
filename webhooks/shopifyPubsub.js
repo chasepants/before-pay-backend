@@ -25,7 +25,6 @@ module.exports = async function shopifyPubsub(req, res) {
         const ticket = await oauthClient.verifyIdToken({ idToken, audience: jwtAudience });
         const claim = ticket.getPayload();
 
-        // Optional extra checks recommended by Google
         if (expectedServiceAccount && claim.email !== expectedServiceAccount) {
           console.warn('Pub/Sub JWT email mismatch', { claimEmail: claim.email, expectedServiceAccount });
           return res.status(401).json({ error: 'Unauthorized' });
@@ -39,7 +38,6 @@ module.exports = async function shopifyPubsub(req, res) {
         return res.status(400).send('Invalid token');
       }
     } else {
-      // Fallback: shared secret via header or attribute (useful for local tests without JWT)
       const configuredToken = process.env.PUBSUB_VERIFICATION_TOKEN;
       const headerToken = req.headers['x-pubsub-token'];
       const attrToken = body?.message?.attributes?.token;
@@ -66,7 +64,7 @@ module.exports = async function shopifyPubsub(req, res) {
     try {
       payload = JSON.parse(decoded);
     } catch (e) {
-      payload = decoded; // fallback to raw string if not JSON
+      payload = decoded;
     }
 
     console.log('Received Pub/Sub push:', {
@@ -76,16 +74,45 @@ module.exports = async function shopifyPubsub(req, res) {
       isJson: typeof payload === 'object'
     });
 
-    // At this point, route the payload to the appropriate handler as needed.
-    // If Shopify is pushing into Pub/Sub, payload structure will be the original Shopify webhook payload.
-    // You can branch on attributes (e.g., attributes.topic) to dispatch to specific logic.
+    await handleShopifyFromPubSub(pushMessage);
 
-    // For now we just acknowledge; add business logic/dispatch here as needed.
-    return res.status(204).send(); // 2xx acknowledges delivery
+    return res.status(204).send();
   } catch (err) {
     console.error('Pub/Sub push handler error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
+async function handleShopifyFromPubSub(pushMessage) {
+  const attrs = pushMessage.attributes || {};
+  const rawBody = Buffer.from(pushMessage.data, 'base64').toString('utf8');
 
+  const payload = JSON.parse(rawBody);
+
+  const eventId = attrs['X-Shopify-Event-Id'] || attrs['X-Shopify-Webhook-Id'];
+  const topic = attrs['X-Shopify-Topic'];
+  const shop = attrs['X-Shopify-Shop-Domain'];
+
+  console.log('Shopify webhook:', { topic, shop, eventId });
+
+  switch (topic) {
+    case 'checkouts/create':
+      console.log('Checkout created:', {
+        checkoutId: payload.id,
+        email: payload.email,
+        totalPrice: payload.total_price,
+        currency: payload.currency,
+        lineItems: payload.line_items?.map(item => ({
+          productId: item.product_id,
+          variantId: item.variant_id,
+          title: item.title,
+          quantity: item.quantity,
+          price: item.price
+        }))
+      });
+      break;
+    default:
+      console.log('Unhandled Shopify topic:', topic);
+      break;
+  }
+}
