@@ -10,14 +10,13 @@ const bankRoutes = require('./routes/bank');
 const webhook = require('./webhooks/index');
 const shopifyPubsub = require('./webhooks/shopifyPubsub');
 const { processScheduledPayments } = require('./cron/process-payments');
+const { processAbandonedCarts } = require('./cron/abandoned-carts');
 const launchRoutes = require('./routes/launch');
 const shopifyMerchantRoutes = require('./routes/shopifyMerchant');
 const app = express();
 
-// Enhanced CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
     const allowedOrigins = [
@@ -74,7 +73,6 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Debug middleware to log all requests
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path} from origin: ${req.headers.origin || 'no-origin'}`);
   console.log('Headers:', {
@@ -86,7 +84,6 @@ app.use((req, res, next) => {
     'referer': req.headers['referer']
   });
   
-  // Log CORS-related headers
   if (req.method === 'OPTIONS') {
     console.log('OPTIONS request detected - CORS preflight');
   }
@@ -94,7 +91,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Additional OPTIONS handler for all routes
 app.options('*', (req, res) => {
   const origin = req.headers.origin;
   console.log('OPTIONS request from origin:', origin);
@@ -103,7 +99,7 @@ app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
   res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  res.header('Access-Control-Max-Age', '86400');
   res.sendStatus(200);
 });
 
@@ -119,7 +115,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Debug middleware to log all requests
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path} from origin: ${req.headers.origin || 'no-origin'}`);
   console.log('Headers:', {
@@ -131,7 +126,6 @@ app.use((req, res, next) => {
     'referer': req.headers['referer']
   });
   
-  // Log CORS-related headers
   if (req.method === 'OPTIONS') {
     console.log('OPTIONS request detected - CORS preflight');
   }
@@ -148,7 +142,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Google Pub/Sub push endpoint (Shopify -> Pub/Sub -> Vercel)
 app.post('/webhooks/shopify-pubsub', async (req, res) => {
   try {
     await shopifyPubsub(req, res);
@@ -158,7 +151,6 @@ app.post('/webhooks/shopify-pubsub', async (req, res) => {
   }
 });
 
-// Alias under /api to match existing calling patterns
 app.post('/api/webhooks/shopify-pubsub', async (req, res) => {
   try {
     await shopifyPubsub(req, res);
@@ -258,6 +250,22 @@ app.get('/api/cron/process-payments', async (req, res) => {
   } catch (e) {
     console.error('Cron route error:', e);
     res.status(500).json({ error: 'Cron failed' });
+  }
+});
+
+app.get('/api/cron/abandoned-carts', async (req, res) => {
+  try {
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    if (token !== process.env.CRON_SECRET) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    console.log('Abandoned carts cron job started at:', new Date().toISOString());
+    await processAbandonedCarts();
+    console.log('Abandoned carts cron job completed at:', new Date().toISOString());
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Abandoned carts cron route error:', e);
+    res.status(500).json({ error: 'Abandoned carts cron failed' });
   }
 });
 

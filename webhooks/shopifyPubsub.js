@@ -1,5 +1,6 @@
 const { Buffer } = require('node:buffer');
 const { OAuth2Client } = require('google-auth-library');
+const CheckoutCart = require('../models/CheckoutCart');
 const oauthClient = new OAuth2Client();
 
 
@@ -97,22 +98,91 @@ async function handleShopifyFromPubSub(pushMessage) {
 
   switch (topic) {
     case 'checkouts/create':
-      console.log('Checkout created:', {
-        checkoutId: payload.id,
-        email: payload.email,
-        totalPrice: payload.total_price,
-        currency: payload.currency,
-        lineItems: payload.line_items?.map(item => ({
-          productId: item.product_id,
-          variantId: item.variant_id,
-          title: item.title,
-          quantity: item.quantity,
-          price: item.price
-        }))
-      });
+      await handleCheckoutCreate(payload, attrs);
+      break;
+    case 'orders/create':
+      await handleOrderCreate(payload, attrs);
       break;
     default:
       console.log('Unhandled Shopify topic:', topic);
       break;
+  }
+}
+
+async function handleCheckoutCreate(payload, attrs) {
+  try {
+    const checkoutData = {
+      checkoutId: payload.id.toString(),
+      email: payload.email,
+      shopDomain: attrs['X-Shopify-Shop-Domain'],
+      shopId: attrs['X-Shopify-Shop-Id'],
+      lineItems: payload.line_items?.map(item => ({
+        productId: item.product_id?.toString(),
+        variantId: item.variant_id?.toString(),
+        title: item.title,
+        quantity: item.quantity,
+        price: item.price,
+        sku: item.sku,
+        vendor: item.vendor
+      })) || [],
+    };
+
+    const existingCheckout = await CheckoutCart.findOne({ checkoutId: checkoutData.checkoutId });
+    
+    if (existingCheckout) {
+      console.log('Checkout already exists, updating:', checkoutData.checkoutId);
+      await CheckoutCart.findOneAndUpdate(
+        { checkoutId: checkoutData.checkoutId },
+        { ...checkoutData, updatedAt: new Date() },
+        { new: true }
+      );
+    } else {
+      const checkout = new CheckoutCart(checkoutData);
+      await checkout.save();
+      console.log('New checkout saved:', checkoutData.checkoutId);
+    }
+
+    console.log('Checkout processed:', {
+      checkoutId: checkoutData.checkoutId,
+      email: checkoutData.email
+    });
+
+  } catch (error) {
+    console.error('Error handling checkout create:', error);
+    throw error;
+  }
+}
+
+async function handleOrderCreate(payload, attrs) {
+  try {
+    const checkoutId = payload.checkout_id;
+    if (!checkoutId) {
+      console.log('No checkout token found in order');
+      return;
+    }
+
+    const checkout = await CheckoutCart.findOneAndUpdate(
+      { checkoutId: checkoutId },
+      { 
+        status: 'completed',
+        orderId: payload.id?.toString(),
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (checkout) {
+      console.log('Checkout marked as completed:', {
+        checkoutId: checkout.checkoutId,
+        orderId: payload.id,
+        email: checkout.email
+      });
+    } else {
+      console.log('No checkout found for order token:', checkoutId);
+    }
+
+  } catch (error) {
+    console.error('Error handling order create:', error);
+    throw error;
   }
 }

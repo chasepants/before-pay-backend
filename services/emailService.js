@@ -51,6 +51,26 @@ class EmailService {
       return { success: false, error: error.message };
     }
   }
+
+  async sendEmail({ to, subject, html, text }) {
+    try {
+      const msg = {
+        to: to,
+        from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
+        subject: subject,
+        html: html,
+        text: text
+      };
+
+      const result = await sgMail.send(msg);
+      console.log('Email sent successfully');
+      return { success: true };
+      
+    } catch (error) {
+      console.error('Error sending email:', error);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 // Export a singleton instance
