@@ -153,6 +153,96 @@ describe('Shopify Pub/Sub Webhook Handler - Simple Tests', () => {
       expect(response.body.error).toBe('Invalid Pub/Sub payload');
     });
 
+    it('should skip checkout create when no email is provided', async () => {
+      const app = createMockApp();
+      
+      const shopifyPayload = {
+        id: 12345,
+        // No email field
+        line_items: []
+      };
+
+      const pubSubPayload = createPubSubPayload(shopifyPayload, {
+        'X-Shopify-Topic': 'checkouts/create'
+      });
+
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      const response = await request(app)
+        .post('/webhooks/shopify-pubsub')
+        .set('x-pubsub-token', 'test-token')
+        .send(pubSubPayload);
+
+      expect(response.status).toBe(204);
+      expect(consoleSpy).toHaveBeenCalledWith('Skipping checkout create - no email provided');
+
+      // Verify no checkout was saved to database
+      const savedCheckouts = await CheckoutCart.find({});
+      expect(savedCheckouts).toHaveLength(0);
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should skip checkout create when email is empty', async () => {
+      const app = createMockApp();
+      
+      const shopifyPayload = {
+        id: 12346,
+        email: '', // Empty email
+        line_items: []
+      };
+
+      const pubSubPayload = createPubSubPayload(shopifyPayload, {
+        'X-Shopify-Topic': 'checkouts/create'
+      });
+
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      const response = await request(app)
+        .post('/webhooks/shopify-pubsub')
+        .set('x-pubsub-token', 'test-token')
+        .send(pubSubPayload);
+
+      expect(response.status).toBe(204);
+      expect(consoleSpy).toHaveBeenCalledWith('Skipping checkout create - no email provided');
+
+      // Verify no checkout was saved to database
+      const savedCheckouts = await CheckoutCart.find({});
+      expect(savedCheckouts).toHaveLength(0);
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should skip checkout create when email is null', async () => {
+      const app = createMockApp();
+      
+      const shopifyPayload = {
+        id: 12347,
+        email: null, // Null email
+        line_items: []
+      };
+
+      const pubSubPayload = createPubSubPayload(shopifyPayload, {
+        'X-Shopify-Topic': 'checkouts/create'
+      });
+
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      const response = await request(app)
+        .post('/webhooks/shopify-pubsub')
+        .set('x-pubsub-token', 'test-token')
+        .send(pubSubPayload);
+
+      expect(response.status).toBe(204);
+      expect(consoleSpy).toHaveBeenCalledWith('Skipping checkout create - no email provided');
+
+      // Verify no checkout was saved to database
+      const savedCheckouts = await CheckoutCart.find({});
+      expect(savedCheckouts).toHaveLength(0);
+
+      consoleSpy.mockRestore();
+    });
+
     it('should handle unhandled topics', async () => {
       const app = createMockApp();
       

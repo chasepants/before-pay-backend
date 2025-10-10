@@ -110,6 +110,11 @@ async function handleShopifyFromPubSub(pushMessage) {
 }
 
 async function handleCheckoutCreate(payload, attrs) {
+  if (!payload.email){
+    console.log('Skipping checkout create - no email provided');
+    return;
+  }
+
   try {
     const checkoutData = {
       checkoutId: payload.id.toString(),
