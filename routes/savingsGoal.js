@@ -301,7 +301,11 @@ router.post('/plaid/create-link-token', async (req, res) => {
       });
     } catch (e) {
       console.error('Plaid link token creation error:', e.message);
-      return res.status(500).json({ error: `Failed to create Plaid link token: ${e.message}` });
+      console.error('Plaid error details:', e.response?.data || e);
+      return res.status(500).json({ 
+        error: `Failed to create Plaid link token: ${e.message}`,
+        details: e.response?.data || 'No additional details available'
+      });
     }
   } catch (e) {
     console.error('Plaid link token error:', e.message);

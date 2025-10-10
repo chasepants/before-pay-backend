@@ -1,4 +1,6 @@
+require('dotenv').config();
 const { Configuration, PlaidApi } = require('plaid');
+const axios = require('axios');
 
 class PlaidService {
   constructor() {
@@ -16,7 +18,7 @@ class PlaidService {
   }
 
   getBasePath() {
-    const environment = process.env.PLAID_ENV || 'sandbox';
+    const environment = process.env.PLAID_ENVIRONMENT || 'sandbox';
     switch (environment) {
       case 'development':
         return 'https://development.plaid.com';
@@ -31,21 +33,39 @@ class PlaidService {
 
   async createLinkToken(userId, clientName = 'BeforePay') {
     try {
-      const response = await this.plaidClient.linkTokenCreate({
+      console.log('PlaidService - Environment variables check:');
+      console.log('PLAID_CLIENT_ID:', process.env.PLAID_CLIENT_ID ? 'SET' : 'NOT SET');
+      console.log('PLAID_SECRET:', process.env.PLAID_SECRET ? 'SET' : 'NOT SET');
+      console.log('PLAID_ENVIRONMENT:', process.env.PLAID_ENVIRONMENT || 'NOT SET');
+      console.log('Base path:', this.getBasePath());
+      
+      // const response = await this.plaidClient.linkTokenCreate({
+      //   user: { client_user_id: userId },
+      //   client_name: clientName,
+      //   country_codes: ['US'],
+      //   language: 'en',
+      //   products: ['auth', 'transactions'],
+      //   account_filters: {
+      //     depository: {
+      //       account_subtypes: ['checking', 'savings']
+      //     }
+      //   }
+      // });
+
+      const response = await axios.post(`https://${process.env.PLAID_ENVIRONMENT}.plaid.com/link/token/create`, {
+        client_id: process.env.PLAID_CLIENT_ID,
+        secret: process.env.PLAID_SECRET,
         user: { client_user_id: userId },
-        client_name: clientName,
+        client_name: 'Beforepay',
+        products: ['auth', 'transactions'],
         country_codes: ['US'],
         language: 'en',
-        products: ['auth', 'transactions'],
-        account_filters: {
-          depository: {
-            account_subtypes: ['checking', 'savings']
-          }
-        }
+        webhook: 'https://your-webhook-url'
       });
 
       return response;
     } catch (error) {
+      console.error('PlaidService createLinkToken error:', error);
       throw new Error(`Failed to create link token: ${error.message}`);
     }
   }
