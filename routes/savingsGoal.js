@@ -223,6 +223,7 @@ router.post('/connect-plaid', async (req, res) => {
     
     res.status(200).json({
       success: true,
+      accessToken: guestSession.plaidToken,
       message: 'Plaid account connected successfully'
     });
   } catch (error) {
