@@ -207,7 +207,6 @@ describe('Shopify Pub/Sub Webhook Handler', () => {
       expect(savedCheckout).toBeTruthy();
       expect(savedCheckout.email).toBe('test@example.com');
       expect(savedCheckout.shopDomain).toBe('test-shop.myshopify.com');
-      expect(savedCheckout.shopId).toBe('12345');
       expect(savedCheckout.lineItems).toHaveLength(1);
       expect(savedCheckout.lineItems[0].title).toBe('Test Product');
       expect(savedCheckout.status).toBe('active');
@@ -221,7 +220,6 @@ describe('Shopify Pub/Sub Webhook Handler', () => {
         checkoutId: '12345',
         email: 'old@example.com',
         shopDomain: 'old-shop.myshopify.com',
-        shopId: '99999',
         lineItems: [],
         status: 'active'
       });
@@ -269,7 +267,6 @@ describe('Shopify Pub/Sub Webhook Handler', () => {
         checkoutId: '12345',
         email: 'test@example.com',
         shopDomain: 'test-shop.myshopify.com',
-        shopId: '12345',
         lineItems: [],
         status: 'active'
       });

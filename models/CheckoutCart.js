@@ -16,10 +16,6 @@ const checkoutCartSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  shopId: {
-    type: String,
-    required: true
-  },
   lineItems: [{
     productId: String,
     variantId: String,

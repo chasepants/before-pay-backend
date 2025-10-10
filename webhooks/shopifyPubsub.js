@@ -120,7 +120,6 @@ async function handleCheckoutCreate(payload, attrs) {
       checkoutId: payload.id.toString(),
       email: payload.email,
       shopDomain: attrs['X-Shopify-Shop-Domain'],
-      shopId: attrs['X-Shopify-Shop-Id'],
       lineItems: payload.line_items?.map(item => ({
         productId: item.product_id?.toString(),
         variantId: item.variant_id?.toString(),

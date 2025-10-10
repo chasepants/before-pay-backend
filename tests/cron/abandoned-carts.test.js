@@ -47,7 +47,6 @@ describe('Abandoned Carts Cron Job', () => {
         checkoutId: 'checkout-1',
         email: 'test1@example.com',
         shopDomain: 'shop1.myshopify.com',
-        shopId: '12345',
         lineItems: [
           {
             productId: '67890',
@@ -68,7 +67,6 @@ describe('Abandoned Carts Cron Job', () => {
         checkoutId: 'checkout-2',
         email: 'test2@example.com',
         shopDomain: 'shop2.myshopify.com',
-        shopId: '67890',
         lineItems: [
           {
             productId: '11111',
@@ -89,7 +87,6 @@ describe('Abandoned Carts Cron Job', () => {
         checkoutId: 'checkout-3',
         email: 'test3@example.com',
         shopDomain: 'shop3.myshopify.com',
-        shopId: '11111',
         lineItems: [],
         status: 'active',
         emailSent: false,
@@ -100,7 +97,6 @@ describe('Abandoned Carts Cron Job', () => {
         checkoutId: 'checkout-4',
         email: 'test4@example.com',
         shopDomain: 'shop4.myshopify.com',
-        shopId: '22222',
         lineItems: [],
         status: 'completed',
         emailSent: false,
@@ -111,7 +107,6 @@ describe('Abandoned Carts Cron Job', () => {
     //     checkoutId: 'checkout-5',
     //     email: "",
     //     shopDomain: 'shop5.myshopify.com',
-    //     shopId: '33333',
     //     lineItems: [],
     //     status: 'active',
     //     emailSent: false,
@@ -122,7 +117,6 @@ describe('Abandoned Carts Cron Job', () => {
         checkoutId: 'checkout-6',
         email: 'test6@example.com',
         shopDomain: 'shop6.myshopify.com',
-        shopId: '44444',
         lineItems: [],
         status: 'active',
         emailSent: true,
@@ -183,7 +177,6 @@ describe('Abandoned Carts Cron Job', () => {
         checkoutId: 'checkout-error',
         email: 'error@example.com',
         shopDomain: 'error-shop.myshopify.com',
-        shopId: '99999',
         lineItems: [],
         status: 'active',
         emailSent: false,
@@ -223,7 +216,6 @@ describe('Abandoned Carts Cron Job', () => {
           checkoutId: `checkout-${i}`,
           email: `test${i}@example.com`,
           shopDomain: `shop${i}.myshopify.com`,
-          shopId: `${i}`,
           lineItems: [],
           status: 'active',
           emailSent: false,
@@ -294,7 +286,6 @@ describe('Abandoned Carts Cron Job', () => {
         checkoutId: 'test-checkout',
         email: 'test@example.com',
         shopDomain: 'test-shop.myshopify.com',
-        shopId: '12345',
         lineItems: [
           {
             productId: '67890',
@@ -331,7 +322,6 @@ describe('Abandoned Carts Cron Job', () => {
         checkoutId: 'test-checkout',
         email: 'test@example.com',
         shopDomain: 'test-shop.myshopify.com',
-        shopId: '12345',
         lineItems: [
           {
             productId: '67890',
@@ -367,7 +357,6 @@ describe('Abandoned Carts Cron Job', () => {
         checkoutId: 'empty-checkout',
         email: 'test@example.com',
         shopDomain: 'test-shop.myshopify.com',
-        shopId: '12345',
         lineItems: [],
         status: 'active',
         emailSent: false,
