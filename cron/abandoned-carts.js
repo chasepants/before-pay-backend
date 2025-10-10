@@ -4,11 +4,18 @@ const emailService = require('../services/emailService');
 const ABANDONMENT_THRESHOLD_HOURS = 1;
 const MAX_EMAILS_PER_RUN = 50;
 
-async function processAbandonedCarts() {
+async function processAbandonedCarts(thresholdMinutes = null) {
   try {
     console.log('Starting abandoned cart processing...');
     
-    const cutoffTime = new Date(Date.now() - (ABANDONMENT_THRESHOLD_HOURS * 60 * 60 * 1000));
+    // Use provided threshold or default to 1 hour
+    const thresholdMs = thresholdMinutes 
+      ? thresholdMinutes * 60 * 1000  // Convert minutes to milliseconds
+      : ABANDONMENT_THRESHOLD_HOURS * 60 * 60 * 1000;  // Default 1 hour
+    
+    const cutoffTime = new Date(Date.now() - thresholdMs);
+    
+    console.log(`Using threshold: ${thresholdMinutes ? thresholdMinutes + ' minutes' : '1 hour'}`);
     
     const abandonedCheckouts = await CheckoutCart.find({
       status: 'active',
@@ -112,24 +119,15 @@ function generateAbandonedCartEmailHTML(data) {
       <ul>
         ${itemsList}
       </ul>
-            
-      <div style="margin: 30px 0;">
-        <a href="https://${data.shopDomain}/checkout/${data.checkoutId}" 
-           style="background-color: #007cba; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
-          Complete Purchase
-        </a>
-      </div>
       
-      <p>Or create a savings plan to pay over time:</p>
+      <p>Would you like to start a savings plan to pay for some or all of these over time?</p>
       <div style="margin: 20px 0;">
-        <a href="https://stashpay.com/save-for-later?checkout=${data.checkoutId}" 
+        <a href="https://sandbox.gostashpay.com/start-savings-plan?checkout=${data.checkoutId}" 
            style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
-          Save for Later with StashPay
+          Save Now, Buy Later with StashPay
         </a>
       </div>
-      
-      <p>This offer expires in 24 hours.</p>
-      
+
       <hr style="margin: 30px 0;">
       <p style="font-size: 12px; color: #666;">
         This email was sent because you started a checkout at ${data.shopDomain}. 
@@ -157,7 +155,7 @@ function generateAbandonedCartEmailText(data) {
 
     Complete your purchase: https://${data.shopDomain}/checkout/${data.checkoutId}
 
-    Or create a savings plan to pay over time: https://stashpay.com/save-for-later?checkout=${data.checkoutId}
+    Or create a savings plan to pay over time: https://sandbox.gostashpay.com/start-savings-plan?checkout=${data.checkoutId}
 
     This offer expires in 24 hours.
 

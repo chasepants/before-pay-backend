@@ -311,9 +311,7 @@ describe('Abandoned Carts Cron Job', () => {
       expect(emailCall.html).toContain('test-shop.myshopify.com');
       expect(emailCall.html).toContain('Test Product');
       expect(emailCall.html).toContain('test-checkout');
-      expect(emailCall.html).toContain('Complete Purchase');
-      expect(emailCall.html).toContain('Save for Later with StashPay');
-      expect(emailCall.html).toContain('This offer expires in 24 hours');
+      expect(emailCall.html).toContain('Save Now, Buy Later with StashPay');
     });
 
     it('should generate proper text email content', async () => {

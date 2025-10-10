@@ -6,7 +6,6 @@ class EmailService {
   }
 
   initializeSendGrid() {
-    // Set SendGrid API key
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
   }
 
@@ -15,7 +14,7 @@ class EmailService {
       const msg = {
         to: email,
         from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
-        templateId: 'd-336f5143505f407f95d87ded5c2f19ab', // Your verification code template ID
+        templateId: 'd-336f5143505f407f95d87ded5c2f19ab',
         dynamicTemplateData: {
           VERIFICATION_CODE: verificationCode
         }

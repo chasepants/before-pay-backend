@@ -269,6 +269,23 @@ app.get('/api/cron/abandoned-carts', async (req, res) => {
   }
 });
 
+app.get('/api/checkout-cart/:checkoutId', async (req, res) => {
+  try {
+    const { checkoutId } = req.params;
+    const CheckoutCart = require('./models/CheckoutCart');
+    
+    const checkout = await CheckoutCart.findOne({ checkoutId });
+    if (!checkout) {
+      return res.status(404).json({ error: 'Checkout not found' });
+    }
+    
+    res.json(checkout);
+  } catch (error) {
+    console.error('Error fetching checkout cart:', error);
+    res.status(500).json({ error: 'Failed to fetch checkout data' });
+  }
+});
+
 mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
