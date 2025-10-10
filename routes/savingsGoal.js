@@ -292,7 +292,7 @@ router.post('/plaid/create-link-token', async (req, res) => {
 
     try {
       const plaidService = new PlaidService();
-      const linkTokenResponse = await plaidService.createLinkToken(guestSession.email, 'StashPay Guest Checkout');
+      const linkTokenResponse = await plaidService.createLinkToken(guestSession._id, 'StashPay Guest Checkout');
       
       return res.status(200).json({
         success: true,
