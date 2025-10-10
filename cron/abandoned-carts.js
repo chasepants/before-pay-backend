@@ -1,5 +1,7 @@
 const CheckoutCart = require('../models/CheckoutCart');
 const emailService = require('../services/emailService');
+const EmailToken = require('../models/EmailToken');
+const { v4: uuidv4 } = require('uuid');
 
 const ABANDONMENT_THRESHOLD_HOURS = 1;
 const MAX_EMAILS_PER_RUN = 50;
@@ -67,9 +69,23 @@ async function processAbandonedCheckout(checkout) {
 
 async function sendAbandonedCartEmail(checkout) {
   try {
+    // Generate email token
+    const token = uuidv4();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    
+    // Save token to database
+    const emailToken = new EmailToken({
+      token,
+      email: checkout.email,
+      checkoutId: checkout.checkoutId,
+      expiresAt
+    });
+    await emailToken.save();
+
     const emailData = {
       to: checkout.email,
       checkoutId: checkout.checkoutId,
+      token: token,
       lineItems: checkout.lineItems,
       shopDomain: checkout.shopDomain
     };
@@ -122,7 +138,7 @@ function generateAbandonedCartEmailHTML(data) {
       
       <p>Would you like to start a savings plan to pay for some or all of these over time?</p>
       <div style="margin: 20px 0;">
-        <a href="https://sandbox.gostashpay.com/start-savings-plan?checkout=${data.checkoutId}" 
+        <a href="https://sandbox.gostashpay.com/start-savings-plan?token=${data.token}&checkout=${data.checkoutId}" 
            style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
           Save Now, Buy Later with StashPay
         </a>
@@ -155,7 +171,7 @@ function generateAbandonedCartEmailText(data) {
 
     Complete your purchase: https://${data.shopDomain}/checkout/${data.checkoutId}
 
-    Or create a savings plan to pay over time: https://sandbox.gostashpay.com/start-savings-plan?checkout=${data.checkoutId}
+    Or create a savings plan to pay over time: https://sandbox.gostashpay.com/start-savings-plan?token=${data.token}&checkout=${data.checkoutId}
 
     This offer expires in 24 hours.
 

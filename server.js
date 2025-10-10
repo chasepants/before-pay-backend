@@ -286,6 +286,45 @@ app.get('/api/checkout-cart/:checkoutId', async (req, res) => {
   }
 });
 
+// Validate email token and get checkout data
+app.get('/api/validate-email-token/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const EmailToken = require('./models/EmailToken');
+    const CheckoutCart = require('./models/CheckoutCart');
+
+    // Find and validate token
+    const emailToken = await EmailToken.findOne({ 
+      token, 
+      used: false,
+      expiresAt: { $gt: new Date() }
+    });
+
+    if (!emailToken) {
+      return res.status(404).json({ error: 'Invalid or expired token' });
+    }
+
+    // Get checkout data
+    const checkout = await CheckoutCart.findOne({ checkoutId: emailToken.checkoutId });
+    if (!checkout) {
+      return res.status(404).json({ error: 'Checkout not found' });
+    }
+
+    // Mark token as used
+    emailToken.used = true;
+    await emailToken.save();
+
+    res.json({
+      success: true,
+      email: emailToken.email,
+      checkout: checkout
+    });
+  } catch (error) {
+    console.error('Error validating email token:', error);
+    res.status(500).json({ error: 'Failed to validate token' });
+  }
+});
+
 mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
