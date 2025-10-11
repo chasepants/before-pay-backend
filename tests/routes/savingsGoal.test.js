@@ -2969,6 +2969,12 @@ describe('SavingsGoal Routes', () => {
           guestToken: 'test-guest-token',
           goalName: 'Test Guest Goal',
           targetAmount: 1000,
+          bankDetails: {
+            bankName: 'Chase Bank',
+            bankAccountName: 'Primary Checking',
+            bankLastFour: '1234',
+            bankAccountType: 'checking'
+          },
           product: {
             name: 'Test Product',
             price: 1000,
@@ -2992,13 +2998,12 @@ describe('SavingsGoal Routes', () => {
         expect(response.body.savingsGoal.userId).toBeDefined();
         expect(response.body.savingsGoal.userId).not.toBeNull();
 
-        // Schedule assertions (4 monthly installments, amount per installment = 250)
         expect(response.body.savingsGoal.schedule).toBeDefined();
-        expect(response.body.savingsGoal.schedule.frequency).toBe('monthly');
-        expect(response.body.savingsGoal.schedule.interval).toBe('monthly');
-        expect(response.body.savingsGoal.schedule.installments).toBe(4);
-        expect(response.body.savingsGoal.schedule.amountPerInstallment).toBeCloseTo(250);
+        expect(response.body.savingsGoal.schedule.interval).toBe('Monthly');
+        expect(response.body.savingsGoal.schedule.dayOfMonth).toBeDefined();
         expect(new Date(response.body.savingsGoal.schedule.startDate).getTime()).toBeGreaterThan(Date.now() - 5 * 60 * 1000);
+
+        expect(response.body.savingsGoal.savingsAmount).toBeCloseTo(250);
 
         // Shopify identifier assertions on product
         expect(response.body.savingsGoal.product).toBeDefined();
@@ -3006,6 +3011,13 @@ describe('SavingsGoal Routes', () => {
         expect(response.body.savingsGoal.product.shopifyVariantId).toBe('gid://shopify/ProductVariant/111');
         expect(response.body.savingsGoal.product.handle).toBe('test-product');
         expect(response.body.savingsGoal.product.image).toBe('https://example.com/image.jpg');
+
+        // Bank details assertions
+        expect(response.body.savingsGoal.bank).toBeDefined();
+        expect(response.body.savingsGoal.bank.bankName).toBe('Chase Bank');
+        expect(response.body.savingsGoal.bank.bankAccountName).toBe('Primary Checking');
+        expect(response.body.savingsGoal.bank.bankLastFour).toBe('1234');
+        expect(response.body.savingsGoal.bank.bankAccountType).toBe('checking');
       });
 
       it('should return 400 if required fields are missing', async () => {

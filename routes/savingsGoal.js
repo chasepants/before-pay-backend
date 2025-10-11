@@ -370,7 +370,7 @@ router.post('/plaid/create-link-token', async (req, res) => {
 
 router.post('/create-guest-goal', async (req, res) => {
   try {
-    const { guestToken, emailToken, goalName, description, targetAmount, product } = req.body;
+    const { guestToken, emailToken, goalName, description, targetAmount, product, bankDetails } = req.body;
     
     if ((!guestToken && !emailToken) || !goalName || !targetAmount) {
       return res.status(400).json({ error: 'Either guest token or email token, goal name, and target amount are required' });
@@ -410,8 +410,7 @@ router.post('/create-guest-goal', async (req, res) => {
       }
     }
     
-    const monthlyInstallments = 4;
-    const amountPerInstallment = parseFloat(targetAmount) / monthlyInstallments;
+    const savingsAmount = parseFloat(targetAmount) / 4; // Always 4 installments
     const startDate = new Date();
     startDate.setDate(startDate.getDate() + 1);
 
@@ -425,16 +424,21 @@ router.post('/create-guest-goal', async (req, res) => {
       goalName,
       description: description || '',
       targetAmount: parseFloat(targetAmount),
+      savingsAmount: savingsAmount,
       product: product || {},
       userId: user._id, // Use the User's _id
       plaidToken: guestSession.plaidToken,
       source: 'guest-checkout',
+      bank: bankDetails ? {
+        bankName: bankDetails.bankName,
+        bankAccountName: bankDetails.bankAccountName,
+        bankLastFour: bankDetails.bankLastFour,
+        bankAccountType: bankDetails.bankAccountType
+      } : undefined,
       schedule: {
         startDate,
-        interval: 'monthly',
-        frequency: 'monthly',
-        installments: monthlyInstallments,
-        amountPerInstallment
+        interval: 'Monthly',
+        dayOfMonth: startDate.getDate()
       }
     });
 
