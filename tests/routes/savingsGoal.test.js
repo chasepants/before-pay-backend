@@ -2895,7 +2895,7 @@ describe('SavingsGoal Routes', () => {
           .send({ plaidToken: 'test-plaid-token' })
           .expect(400);
 
-        expect(response.body.error).toBe('Guest token and Plaid token are required');
+        expect(response.body.error).toBe('Either guest token or email token is required');
       });
 
       it('should return 400 if plaidToken is missing', async () => {
@@ -2904,7 +2904,7 @@ describe('SavingsGoal Routes', () => {
           .send({ guestToken: 'test-guest-token' })
           .expect(400);
 
-        expect(response.body.error).toBe('Guest token and Plaid token are required');
+        expect(response.body.error).toBe('Plaid token is required');
       });
 
       it('should return 401 if guest session is invalid', async () => {
@@ -3005,7 +3005,7 @@ describe('SavingsGoal Routes', () => {
           .send({ guestToken: 'test-guest-token' })
           .expect(400);
 
-        expect(response.body.error).toBe('Guest token, goal name, and target amount are required');
+        expect(response.body.error).toBe('Either guest token or email token, goal name, and target amount are required');
       });
 
       it('should return 401 if guest session is invalid', async () => {

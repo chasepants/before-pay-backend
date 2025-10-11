@@ -187,20 +187,47 @@ router.post('/verify-code', async (req, res) => {
 
 router.post('/connect-plaid', async (req, res) => {
   try {
-    const { guestToken, plaidToken, publicToken, accountId } = req.body;
+    const { guestToken, emailToken, plaidToken, publicToken, accountId } = req.body;
     
-    if (!guestToken) {
-      return res.status(400).json({ error: 'Guest token and Plaid token are required' });
+    if (!guestToken && !emailToken) {
+      return res.status(400).json({ error: 'Either guest token or email token is required' });
     }
 
-    const guestSession = await GuestSession.findOne({ guestToken });
-    if (!guestSession) {
-      return res.status(401).json({ error: 'Invalid or expired guest session' });
-    }
-    
-    if (new Date() > guestSession.expiresAt) {
-      await GuestSession.deleteOne({ _id: guestSession._id });
-      return res.status(401).json({ error: 'Guest session expired' });
+    let guestSession;
+
+    if (guestToken) {
+      // Guest session flow (merchant onboarding)
+      guestSession = await GuestSession.findOne({ guestToken });
+      if (!guestSession) {
+        return res.status(401).json({ error: 'Invalid or expired guest session' });
+      }
+      if (new Date() > guestSession.expiresAt) {
+        await GuestSession.deleteOne({ _id: guestSession._id });
+        return res.status(401).json({ error: 'Guest session expired' });
+      }
+    } else if (emailToken) {
+      // Email token flow (abandoned cart) - create temporary guest session
+      const EmailToken = require('../models/EmailToken');
+      const emailTokenDoc = await EmailToken.findOne({ 
+        token: emailToken, 
+        // used: false,
+        expiresAt: { $gt: new Date() }
+      });
+      
+      if (!emailTokenDoc) {
+        return res.status(401).json({ error: 'Invalid or expired email token' });
+      }
+      
+      // Create or find existing guest session for this email
+      guestSession = await GuestSession.findOne({ email: emailTokenDoc.email });
+      if (!guestSession) {
+        guestSession = new GuestSession({
+          email: emailTokenDoc.email,
+          guestToken: require('crypto').randomBytes(32).toString('hex'),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+        });
+        await guestSession.save();
+      }
     }
     
     // Use PlaidService to exchange publicToken or store provided plaidToken
@@ -217,7 +244,7 @@ router.post('/connect-plaid', async (req, res) => {
     } else if (plaidToken) {
       guestSession.plaidToken = plaidToken;
     } else {
-      return res.status(400).json({ error: 'Guest token and Plaid token are required' });
+      return res.status(400).json({ error: 'Plaid token is required' });
     }
     await guestSession.save();
     
@@ -279,21 +306,47 @@ router.post('/plaid/connect-sandbox', async (req, res) => {
 
 router.post('/plaid/create-link-token', async (req, res) => {
   try {
-    const { guestToken } = req.body;
-    if (!guestToken) return res.status(400).json({ error: 'Guest token is required' });
-
-    const guestSession = await GuestSession.findOne({ guestToken });
-    if (!guestSession) {
-      return res.status(401).json({ error: 'Invalid or expired guest session' });
+    const { guestToken, emailToken } = req.body;
+    
+    if (!guestToken && !emailToken) {
+      return res.status(400).json({ error: 'Either guest token or email token is required' });
     }
-    if (new Date() > guestSession.expiresAt) {
-      await GuestSession.deleteOne({ _id: guestSession._id });
-      return res.status(401).json({ error: 'Guest session expired' });
+
+    let userId;
+    let clientName = 'StashPay';
+
+    if (guestToken) {
+      // Guest session flow (merchant onboarding)
+      const guestSession = await GuestSession.findOne({ guestToken });
+      if (!guestSession) {
+        return res.status(401).json({ error: 'Invalid or expired guest session' });
+      }
+      if (new Date() > guestSession.expiresAt) {
+        await GuestSession.deleteOne({ _id: guestSession._id });
+        return res.status(401).json({ error: 'Guest session expired' });
+      }
+      userId = guestSession._id;
+      clientName = 'StashPay Guest Checkout';
+    } else if (emailToken) {
+      // Email token flow (abandoned cart)
+      const EmailToken = require('../models/EmailToken');
+      const emailTokenDoc = await EmailToken.findOne({ 
+        token: emailToken,
+        expiresAt: { $gt: new Date() }
+      });
+      
+      if (!emailTokenDoc) {
+        return res.status(401).json({ error: 'Invalid or expired email token' });
+      }
+      
+      // Use email as user ID for Plaid
+      userId = emailToken;
+      clientName = 'StashPay Savings Plan';
     }
 
     try {
       const plaidService = new PlaidService();
-      const linkTokenResponse = await plaidService.createLinkToken(guestSession._id, 'StashPay Guest Checkout');
+      const linkTokenResponse = await plaidService.createLinkToken(userId, clientName);
       
       return res.status(200).json({
         success: true,
@@ -316,20 +369,41 @@ router.post('/plaid/create-link-token', async (req, res) => {
 
 router.post('/create-guest-goal', async (req, res) => {
   try {
-    const { guestToken, goalName, description, targetAmount, product } = req.body;
+    const { guestToken, emailToken, goalName, description, targetAmount, product } = req.body;
     
-    if (!guestToken || !goalName || !targetAmount) {
-      return res.status(400).json({ error: 'Guest token, goal name, and target amount are required' });
+    if ((!guestToken && !emailToken) || !goalName || !targetAmount) {
+      return res.status(400).json({ error: 'Either guest token or email token, goal name, and target amount are required' });
     }
 
-    const guestSession = await GuestSession.findOne({ guestToken });
-    if (!guestSession) {
-      return res.status(401).json({ error: 'Invalid or expired guest session' });
-    }
-    
-    if (new Date() > guestSession.expiresAt) {
-      await GuestSession.deleteOne({ _id: guestSession._id });
-      return res.status(401).json({ error: 'Guest session expired' });
+    let guestSession;
+
+    if (guestToken) {
+      // Guest session flow (merchant onboarding)
+      guestSession = await GuestSession.findOne({ guestToken });
+      if (!guestSession) {
+        return res.status(401).json({ error: 'Invalid or expired guest session' });
+      }
+      if (new Date() > guestSession.expiresAt) {
+        await GuestSession.deleteOne({ _id: guestSession._id });
+        return res.status(401).json({ error: 'Guest session expired' });
+      }
+    } else if (emailToken) {
+      // Email token flow (abandoned cart) - find existing guest session
+      const EmailToken = require('../models/EmailToken');
+      const emailTokenDoc = await EmailToken.findOne({ 
+        token: emailToken, 
+        expiresAt: { $gt: new Date() }
+      });
+      
+      if (!emailTokenDoc) {
+        return res.status(401).json({ error: 'Invalid or expired email token' });
+      }
+      
+      // Find existing guest session for this email
+      guestSession = await GuestSession.findOne({ email: emailTokenDoc.email });
+      if (!guestSession || !guestSession.plaidToken) {
+        return res.status(401).json({ error: 'No Plaid account linked. Please link your bank account first.' });
+      }
     }
     
     const monthlyInstallments = 4;
