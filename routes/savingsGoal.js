@@ -9,7 +9,7 @@ const { OpenAI } = require('openai');
 require('dotenv').config();
 const { generateImage, enhanceDescription } = require('../services/xaiService');
 const { searchProducts } = require('../services/webSearchService');
-const { ensureAuthenticated } = require('../middleware/auth');
+const { ensureAuthenticated, requireSavingsAccountUser } = require('../middleware/auth');
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
 const emailService = require('../services/emailService');
 const PlaidService = require('../services/plaidService');
@@ -54,6 +54,7 @@ router.options('*', (req, res) => {
 
 router.get('/', ensureAuthenticated, async (req, res) => {
   try {
+    // Fetch savings goals by userId for both user types
     const goals = await SavingsGoal.find({ userId: req.user._id });
     res.json(goals);
   } catch (error) {
@@ -61,7 +62,7 @@ router.get('/', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.get('/search', ensureAuthenticated, async (req, res) => {
+router.get('/search', requireSavingsAccountUser, async (req, res) => {
   const { q } = req.query;
   try {
     const response = await axios.get('https://serpapi.com/search', {
@@ -387,6 +388,9 @@ router.post('/create-guest-goal', async (req, res) => {
         await GuestSession.deleteOne({ _id: guestSession._id });
         return res.status(401).json({ error: 'Guest session expired' });
       }
+      if (!guestSession.plaidToken) {
+        return res.status(401).json({ error: 'No Plaid account linked. Please link your bank account first.' });
+      }
     } else if (emailToken) {
       // Email token flow (abandoned cart) - find existing guest session
       const EmailToken = require('../models/EmailToken');
@@ -411,12 +415,18 @@ router.post('/create-guest-goal', async (req, res) => {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() + 1);
 
+    // Find existing User record for the guest (should already exist)
+    const user = await User.findOne({ email: guestSession.email });
+    if (!user) {
+      return res.status(400).json({ error: 'User account not found. Please create your account first.' });
+    }
+
     const savingsGoal = new SavingsGoal({
       goalName,
       description: description || '',
       targetAmount: parseFloat(targetAmount),
       product: product || {},
-      guestEmail: guestSession.email,
+      userId: user._id, // Use the User's _id
       plaidToken: guestSession.plaidToken,
       source: 'guest-checkout',
       schedule: {
@@ -445,7 +455,7 @@ router.post('/create-guest-goal', async (req, res) => {
   }
 });
 
-router.post('/', ensureAuthenticated, async (req, res) => {
+router.post('/', requireSavingsAccountUser, async (req, res) => {
   try {
     const {
       goalName,
@@ -502,23 +512,27 @@ router.post('/', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.delete('/:id', ensureAuthenticated, async (req, res) => {
+// @todo: we need to check that they are authenticated AND a savings-account user. Are we doing that?
+router.delete('/:id', requireSavingsAccountUser, async (req, res) => {
   const { id } = req.params;
   try {
+    // Only savings account users can delete goals
     const savingsGoal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
     if (!savingsGoal) return res.status(404).json({ error: 'Savings goal not found' });
-    await SavingsGoal.deleteOne({ _id: id, userId: req.user._id });
+    await SavingsGoal.deleteOne({ _id: id });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete savings goal' });
   }
 });
 
-router.put('/:id', ensureAuthenticated, async (req, res) => {
+// @todo: we need to check that they are authenticated AND a savings-account user. Are we doing that?
+router.put('/:id', requireSavingsAccountUser, async (req, res) => {
   const { id } = req.params;
   const { goalName, description, targetAmount } = req.body;
   console.log(req.body)
   try {
+    // Only savings account users can update goals
     const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
     if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
     
@@ -529,7 +543,6 @@ router.put('/:id', ensureAuthenticated, async (req, res) => {
         ...goal.product
       };
     }
-
     if (targetAmount !== undefined) {
       goal.targetAmount = parseFloat(targetAmount);
     }
@@ -559,7 +572,7 @@ router.patch('/:id/pause', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.post('/:id/generate-image', ensureAuthenticated, async (req, res) => {
+router.post('/:id/generate-image', requireSavingsAccountUser, async (req, res) => {
   try {
     const { prompt } = req.body;
     
@@ -588,7 +601,7 @@ router.post('/:id/generate-image', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.post('/:id/ai-insights', ensureAuthenticated, async (req, res) => {
+router.post('/:id/ai-insights', requireSavingsAccountUser, async (req, res) => {
   try {
     const { type, prompt } = req.body;
     
@@ -624,7 +637,7 @@ router.post('/:id/ai-insights', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.post('/:id/web-search', ensureAuthenticated, async (req, res) => {
+router.post('/:id/web-search', requireSavingsAccountUser, async (req, res) => {
   try {
     const { searchQuery } = req.body;
     
@@ -667,7 +680,7 @@ router.post('/:id/web-search', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.post('/:id/save-product', ensureAuthenticated, async (req, res) => {
+router.post('/:id/save-product', requireSavingsAccountUser, async (req, res) => {
   try {
     const { id } = req.params;
     const { productData } = req.body;

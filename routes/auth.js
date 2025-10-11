@@ -27,7 +27,8 @@ router.get('/google/callback', passport.authenticate('google', { session: false,
         firstName: req.user.name.givenName,
         lastName: req.user.name.familyName,
         phone: req.user.phone || '',
-        status: 'pending'
+        status: 'pending',
+        userType: 'savings-account' // Google OAuth users are savings account users. This is not supported for guest users as of now.
       });
       await user.save();
       console.log('New user saved:', user._id, 'with googleId:', user.googleId);
@@ -90,7 +91,7 @@ router.get('/customer-token', ensureAuthenticated, async (req, res) => {
  */
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, firstName, lastName } = req.body;
+    const { email, password, firstName, lastName, userType } = req.body;
 
     // Validate required fields
     if (!email || !password || !firstName || !lastName) {
@@ -106,6 +107,10 @@ router.post('/register', async (req, res) => {
     // Validate password strength
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+
+    if (userType && !['guest', 'savings-account'].includes(userType)) {
+      return res.status(400).json({ error: 'Invalid user type' });
     }
 
     // Check if user already exists in our database
@@ -136,7 +141,8 @@ router.post('/register', async (req, res) => {
       firebaseUid: firebaseUser.uid,
       firstName: firstName,
       lastName: lastName,
-      status: 'pending'
+      status: 'pending',
+      userType: userType || 'savings-account' // Default to savings-account if not specified
     });
 
     await user.save();
@@ -152,7 +158,8 @@ router.post('/register', async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        status: user.status
+        status: user.status,
+        userType: user.userType
       }
     });
 
@@ -171,9 +178,6 @@ router.post('/register', async (req, res) => {
   }
 });
 
-/**
- * Login with email and password
- */
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -182,10 +186,6 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Note: In a real implementation, you would verify the password with Firebase
-    // For now, we'll use a different approach - verify the Firebase token from the frontend
-    // This endpoint will be used after the frontend authenticates with Firebase
-    
     res.status(400).json({ 
       error: 'Please use the frontend Firebase authentication and then call /verify-firebase-token' 
     });
@@ -196,45 +196,37 @@ router.post('/login', async (req, res) => {
   }
 });
 
-/**
- * Verify Firebase ID token and create/update user session
- */
 router.post('/verify-firebase-token', async (req, res) => {
   try {
-    const { idToken, firstName, lastName, emailVerified } = req.body;
+    const { idToken, firstName, lastName, emailVerified, userType } = req.body;
 
     if (!idToken) {
       return res.status(400).json({ error: 'ID token is required' });
     }
 
-    // Verify the Firebase ID token
     const decodedToken = await firebaseService.verifyIdToken(idToken);
     
-    // Find or create user in our database
     let user = await User.findOne({ firebaseUid: decodedToken.uid });
     
     if (!user) {
-      // Check if user exists by email (for Google OAuth users who want to add email/password)
       user = await User.findOne({ email: decodedToken.email });
       
       if (user) {
-        // Link Firebase UID to existing user
         user.firebaseUid = decodedToken.uid;
         await user.save();
       } else {
-        // Create new user
         user = new User({
           email: decodedToken.email,
           firebaseUid: decodedToken.uid,
           firstName: firstName || decodedToken.name?.split(' ')[0] || '',
           lastName: lastName || decodedToken.name?.split(' ').slice(1).join(' ') || '',
-          status: emailVerified === false ? 'email_unverified' : 'pending'
+          status: emailVerified === false ? 'email_unverified' : 'pending',
+          userType: userType || 'savings-account' // Default to savings-account if not specified
         });
         await user.save();
       }
     }
 
-    // Generate JWT token
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '14d' });
 
     res.json({
@@ -245,7 +237,8 @@ router.post('/verify-firebase-token', async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        status: user.status
+        status: user.status,
+        userType: user.userType
       }
     });
 
@@ -281,14 +274,11 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Send password reset email
     const resetLink = await firebaseService.sendPasswordResetEmail(email);
     
-    // In a real app, you would send this link via email
-    // For now, we'll return it in the response (remove this in production)
     res.json({
       message: 'Password reset email sent',
-      resetLink: resetLink // Remove this in production
+      resetLink: resetLink
     });
 
   } catch (error) {
@@ -297,9 +287,6 @@ router.post('/forgot-password', async (req, res) => {
   }
 });
 
-/**
- * Send email verification
- */
 router.post('/send-verification', ensureAuthenticated, async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -311,7 +298,7 @@ router.post('/send-verification', ensureAuthenticated, async (req, res) => {
     
     res.json({
       message: 'Verification email sent',
-      verificationLink: verificationLink // Remove this in production
+      verificationLink: verificationLink
     });
 
   } catch (error) {
@@ -389,7 +376,6 @@ router.get('/create-application-form', ensureAuthenticated, async (req, res) => 
     const data = response.data.data;
     console.log('Application form created:', data);
 
-    // Store application form details in user document
     user.unitApplicationFormId = data.id;
     user.unitApplicationFormToken = data.attributes.applicationFormToken.token;
     user.unitApplicationFormExpiration = data.attributes.applicationFormToken.expiration;

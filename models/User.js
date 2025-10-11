@@ -6,6 +6,7 @@ const UserSchema = new mongoose.Schema({
   firstName: String,
   lastName: String,
   status: { type: String, default: 'pending' },
+  userType: { type: String, enum: ['guest', 'savings-account'], default: 'savings-account' },
   unitApplicationId: String,
   unitCustomerId: String,
   unitAccountId: String,

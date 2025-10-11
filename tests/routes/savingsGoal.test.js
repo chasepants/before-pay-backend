@@ -2942,9 +2942,10 @@ describe('SavingsGoal Routes', () => {
 
     describe('POST /create-guest-goal', () => {
       beforeEach(async () => {
-        // Clean up any existing guest sessions
         const GuestSession = mongoose.model('GuestSession');
+        const User = mongoose.model('User');
         await GuestSession.deleteMany({});
+        await User.deleteMany({ email: 'test@example.com' });
         
         // Create a guest session with Plaid connected for testing using the existing model
         await new GuestSession({
@@ -2952,6 +2953,14 @@ describe('SavingsGoal Routes', () => {
           guestToken: 'test-guest-token',
           plaidToken: 'test-plaid-token',
           expiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 minutes from now
+        }).save();
+
+        // Create a User record for the guest
+        await new User({
+          email: 'test@example.com',
+          firstName: 'Guest',
+          lastName: 'User',
+          userType: 'guest'
         }).save();
       });
 
@@ -2980,8 +2989,8 @@ describe('SavingsGoal Routes', () => {
         expect(response.body.success).toBe(true);
         expect(response.body.savingsGoal).toBeDefined();
         expect(response.body.savingsGoal.source).toBe('guest-checkout');
-        expect(response.body.savingsGoal.guestEmail).toBe('test@example.com');
-        expect(response.body.savingsGoal.userId).toBeUndefined();
+        expect(response.body.savingsGoal.userId).toBeDefined();
+        expect(response.body.savingsGoal.userId).not.toBeNull();
 
         // Schedule assertions (4 monthly installments, amount per installment = 250)
         expect(response.body.savingsGoal.schedule).toBeDefined();
@@ -3024,13 +3033,21 @@ describe('SavingsGoal Routes', () => {
         expect(response.body.error).toBe('Invalid or expired guest session');
       });
 
-      it('should create goal even without Plaid token (no Plaid check implemented)', async () => {
+      it('should return 401 if no Plaid token is linked', async () => {
         // Create guest session without Plaid token using the existing model
         const GuestSession = mongoose.model('GuestSession');
+        const User = mongoose.model('User');
         await new GuestSession({
           email: 'no-plaid@example.com',
           guestToken: 'no-plaid-token',
           expiresAt: new Date(Date.now() + 30 * 60 * 1000)
+        }).save();
+
+        await new User({
+          email: 'no-plaid@example.com',
+          firstName: 'Guest',
+          lastName: 'User',
+          userType: 'guest'
         }).save();
 
         const goalData = {
@@ -3043,11 +3060,9 @@ describe('SavingsGoal Routes', () => {
         const response = await request(app)
           .post('/api/savings-goal/create-guest-goal')
           .send(goalData)
-          .expect(201);
+          .expect(401);
 
-        expect(response.body.success).toBe(true);
-        expect(response.body.savingsGoal).toBeDefined();
-        expect(response.body.savingsGoal.plaidToken).toBeUndefined();
+        expect(response.body.error).toBe('No Plaid account linked. Please link your bank account first.');
       });
 
       it('should handle database errors when creating goal', async () => {
