@@ -1,5 +1,14 @@
 const mongoose = require('mongoose');
 
+const lineItemSchema = new mongoose.Schema({
+  productId: String,
+  variantId: String,
+  quantity: Number,
+  presentmentTitle: String,
+  vendor: String,
+  price: String
+});
+
 const checkoutCartSchema = new mongoose.Schema({
   checkoutId: {
     type: String,
@@ -16,15 +25,11 @@ const checkoutCartSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  lineItems: [{
-    productId: String,
-    variantId: String,
-    title: String,
-    quantity: Number,
-    price: String,
-    sku: String,
-    vendor: String
-  }],
+  totalPrice: String,
+  customerFirstName: String,
+  customerLastName: String,
+  customerId: String,
+  lineItems: [lineItemSchema],
   status: {
     type: String,
     enum: ['active', 'completed', 'abandoned'],

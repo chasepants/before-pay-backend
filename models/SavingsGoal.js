@@ -12,6 +12,7 @@ const transferSchema = new Schema({
 });
 
 const googleProductSchema = new Schema({
+  type: { type: String, default: 'Google' },
   productLink: { type: String },
   title: { type: String },
   price: { type: String },
@@ -34,6 +35,21 @@ const googleProductSchema = new Schema({
   shopifyVariantId: { type: String },
   handle: { type: String },
   image: { type: String }
+});
+
+const shopifyCartSchema = new Schema({
+  type: { type: String, default: 'Shopify' },
+  checkoutId: { type: String },
+  shopDomain: { type: String },
+  currency: { type: String },
+  totalPrice: { type: String },
+  customerId: { type: String },
+  lineItems: [{
+    productId: { type: String },
+    presentmentTitle: { type: String },
+    vendor: { type: String },
+    price: { type: String }
+  }]
 });
 
 const scheduleSchema = new Schema({
@@ -66,7 +82,7 @@ const savingsGoalSchema = new mongoose.Schema({
   currentAmount: { type: Number, default: 0 },
   savingsAmount: Number,
   category: { type: String, enum: ['product', 'trip', 'donation', 'education', 'home', 'other'], default: 'other' },
-  product: { type: googleProductSchema, required: false },
+  product: { type: Schema.Types.Mixed, required: false }, // Can be googleProductSchema or shopifyCartSchema
   schedule: scheduleSchema,
   bank: bankSchema,
   plaidToken: String,
@@ -81,7 +97,18 @@ const savingsGoalSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
   }]
 }, {
-  timestamps: true
+  timestamps: true,
+  minimize: false
+});
+
+savingsGoalSchema.pre('save', function(next) {
+  if (this.product && this.product.price !== undefined) {
+    this.product.price = String(this.product.price);
+  }
+  if (this.product && this.product.old_price !== undefined) {
+    this.product.old_price = String(this.product.old_price);
+  }
+  next();
 });
 
 module.exports = mongoose.model('SavingsGoal', savingsGoalSchema);

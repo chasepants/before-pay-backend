@@ -182,7 +182,7 @@ describe('Shopify Pub/Sub Webhook Handler', () => {
           {
             product_id: 67890,
             variant_id: 11111,
-            title: 'Test Product',
+            presentment_title: 'Test Product',
             quantity: 2,
             price: '29.99',
             sku: 'TEST-SKU',
@@ -208,7 +208,7 @@ describe('Shopify Pub/Sub Webhook Handler', () => {
       expect(savedCheckout.email).toBe('test@example.com');
       expect(savedCheckout.shopDomain).toBe('test-shop.myshopify.com');
       expect(savedCheckout.lineItems).toHaveLength(1);
-      expect(savedCheckout.lineItems[0].title).toBe('Test Product');
+      expect(savedCheckout.lineItems[0].presentmentTitle).toBe('Test Product');
       expect(savedCheckout.status).toBe('active');
     });
 

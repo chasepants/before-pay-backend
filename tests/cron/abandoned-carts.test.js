@@ -51,7 +51,7 @@ describe('Abandoned Carts Cron Job', () => {
           {
             productId: '67890',
             variantId: '11111',
-            title: 'Test Product 1',
+            presentmentTitle: 'Test Product 1',
             quantity: 1,
             price: '99.99',
             sku: 'TEST-1',
@@ -71,7 +71,7 @@ describe('Abandoned Carts Cron Job', () => {
           {
             productId: '11111',
             variantId: '22222',
-            title: 'Test Product 2',
+            presentmentTitle: 'Test Product 2',
             quantity: 2,
             price: '74.99',
             sku: 'TEST-2',
@@ -290,7 +290,7 @@ describe('Abandoned Carts Cron Job', () => {
           {
             productId: '67890',
             variantId: '11111',
-            title: 'Test Product',
+            presentmentTitle: 'Test Product',
             quantity: 2,
             price: '99.99',
             sku: 'TEST-SKU',
@@ -324,7 +324,7 @@ describe('Abandoned Carts Cron Job', () => {
           {
             productId: '67890',
             variantId: '11111',
-            title: 'Test Product',
+            presentmentTitle: 'Test Product',
             quantity: 1,
             price: '199.99',
             sku: 'TEST-SKU',

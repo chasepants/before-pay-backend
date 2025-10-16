@@ -394,6 +394,8 @@ router.post('/create-guest-goal', async (req, res) => {
     } else if (emailToken) {
       // Email token flow (abandoned cart) - find existing guest session
       const EmailToken = require('../models/EmailToken');
+      const CheckoutCart = require('../models/CheckoutCart');
+      
       const emailTokenDoc = await EmailToken.findOne({ 
         token: emailToken, 
         expiresAt: { $gt: new Date() }
@@ -408,6 +410,16 @@ router.post('/create-guest-goal', async (req, res) => {
       if (!guestSession || !guestSession.plaidToken) {
         return res.status(401).json({ error: 'No Plaid account linked. Please link your bank account first.' });
       }
+      
+      // Fetch the checkout data for better naming and product details
+      var checkoutData = await CheckoutCart.findOne({ 
+        checkoutId: emailTokenDoc.checkoutId,
+        email: emailTokenDoc.email 
+      });
+      
+      if (!checkoutData) {
+        return res.status(404).json({ error: 'Checkout data not found' });
+      }
     }
     
     const savingsAmount = parseFloat(targetAmount) / 4; // Always 4 installments
@@ -420,12 +432,32 @@ router.post('/create-guest-goal', async (req, res) => {
       return res.status(400).json({ error: 'User account not found. Please create your account first.' });
     }
 
+    let finalGoalName = goalName;
+    let finalDescription = description || '';
+    let finalProduct = product || {};
+
+    if (emailToken && checkoutData) {
+      const shopName = checkoutData.shopDomain?.replace('.myshopify.com', '') || 'Store';
+      finalGoalName = `Cart from ${shopName}`;
+      finalDescription = 'Save for these items';
+  
+      finalProduct = {
+        type: 'Shopify',
+        checkoutId: checkoutData.checkoutId,
+        shopDomain: checkoutData.shopDomain,
+        currency: checkoutData.currency,
+        totalPrice: checkoutData.totalPrice,
+        customerId: checkoutData.customerId,
+        lineItems: checkoutData.lineItems
+      };
+    }
+
     const savingsGoal = new SavingsGoal({
-      goalName,
-      description: description || '',
+      goalName: finalGoalName,
+      description: finalDescription,
       targetAmount: parseFloat(targetAmount),
       savingsAmount: savingsAmount,
-      product: product || {},
+      product: finalProduct,
       userId: user._id, // Use the User's _id
       plaidToken: guestSession.plaidToken,
       source: 'guest-checkout',
@@ -543,8 +575,8 @@ router.put('/:id', requireSavingsAccountUser, async (req, res) => {
     if (goalName !== undefined) goal.goalName = goalName;
     if (description !== undefined) {
       goal.product = {
-        description,
-        ...goal.product
+        ...goal.product,
+        description
       };
     }
     if (targetAmount !== undefined) {

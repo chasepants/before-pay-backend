@@ -9,11 +9,10 @@ const MAX_EMAILS_PER_RUN = 50;
 async function processAbandonedCarts(thresholdMinutes = null) {
   try {
     console.log('Starting abandoned cart processing...');
-    
-    // Use provided threshold or default to 1 hour
+
     const thresholdMs = thresholdMinutes 
-      ? thresholdMinutes * 60 * 1000  // Convert minutes to milliseconds
-      : ABANDONMENT_THRESHOLD_HOURS * 60 * 60 * 1000;  // Default 1 hour
+      ? thresholdMinutes * 60 * 1000
+      : ABANDONMENT_THRESHOLD_HOURS * 60 * 60 * 1000;
     
     const cutoffTime = new Date(Date.now() - thresholdMs);
     
@@ -69,11 +68,9 @@ async function processAbandonedCheckout(checkout) {
 
 async function sendAbandonedCartEmail(checkout) {
   try {
-    // Generate email token
     const token = uuidv4();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     
-    // Save token to database
     const emailToken = new EmailToken({
       token,
       email: checkout.email,
@@ -114,7 +111,7 @@ async function sendAbandonedCartEmail(checkout) {
 
 function generateAbandonedCartEmailHTML(data) {
   const itemsList = data.lineItems.map(item => 
-    `<li><strong>${item.title}</strong> - ${item.price} (Qty: ${item.quantity})</li>`
+    `<li><strong>${item.presentmentTitle}</strong> - ${item.price} (Qty: ${item.quantity})</li>`
   ).join('');
 
   return `
@@ -156,7 +153,7 @@ function generateAbandonedCartEmailHTML(data) {
 
 function generateAbandonedCartEmailText(data) {
   const itemsList = data.lineItems.map(item => 
-    `- ${item.title} - ${item.price} (Qty: ${item.quantity})`
+    `- ${item.presentmentTitle} - ${item.price} (Qty: ${item.quantity})`
   ).join('\n');
 
   return `

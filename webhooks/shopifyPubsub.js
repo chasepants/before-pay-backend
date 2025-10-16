@@ -120,14 +120,17 @@ async function handleCheckoutCreate(payload, attrs) {
       checkoutId: payload.id.toString(),
       email: payload.email,
       shopDomain: attrs['X-Shopify-Shop-Domain'],
+      totalPrice: payload.total_price,
+      customerFirstName: payload.customer?.first_name,
+      customerLastName: payload.customer?.last_name,
+      customerId: payload.customer?.id?.toString(),
       lineItems: payload.line_items?.map(item => ({
         productId: item.product_id?.toString(),
         variantId: item.variant_id?.toString(),
-        title: item.title,
         quantity: item.quantity,
-        price: item.price,
-        sku: item.sku,
-        vendor: item.vendor
+        presentmentTitle: item.presentment_title,
+        vendor: item.vendor,
+        price: item.price
       })) || [],
     };
 
@@ -148,7 +151,10 @@ async function handleCheckoutCreate(payload, attrs) {
 
     console.log('Checkout processed:', {
       checkoutId: checkoutData.checkoutId,
-      email: checkoutData.email
+      email: checkoutData.email,
+      lineItemsCount: checkoutData.lineItems.length,
+      totalPrice: checkoutData.totalPrice,
+      customerName: `${checkoutData.customerFirstName || ''} ${checkoutData.customerLastName || ''}`.trim()
     });
 
   } catch (error) {
