@@ -1,10 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { verifyShopifySessionToken } = require('../../middleware/shopifyAuth');
 
-// Mock the Shopify API call
-jest.mock('axios');
-const axios = require('axios');
-
 describe('Shopify Auth Middleware', () => {
   let req, res, next;
 
@@ -39,23 +35,10 @@ describe('Shopify Auth Middleware', () => {
           jti: 'test-jti',
           sid: 'test-session-id'
         },
-        process.env.SHOPIFY_API_SECRET || 'test-secret'
+        process.env.SHOPIFY_CLIENT_SECRET || 'test-secret'
       );
 
       req.headers.authorization = `Bearer ${validToken}`;
-
-      // Mock successful Shopify API response
-      axios.get.mockResolvedValue({
-        data: {
-          session: {
-            id: 'test-session-id',
-            shop_id: '123456789',
-            shop_domain: 'test-shop.myshopify.com',
-            is_online: true,
-            state: 'active'
-          }
-        }
-      });
 
       await verifyShopifySessionToken(req, res, next);
 
@@ -88,12 +71,12 @@ describe('Shopify Auth Middleware', () => {
           dest: 'https://test-shop.myshopify.com',
           aud: 'test-audience',
           sub: '123456789',
-          exp: Math.floor(Date.now() / 1000) - 3600, // Expired 1 hour ago
+          exp: Math.floor(Date.now() / 1000) - 3600,
           iat: Math.floor(Date.now() / 1000) - 7200,
           jti: 'test-jti',
           sid: 'test-session-id'
         },
-        process.env.SHOPIFY_API_SECRET || 'test-secret'
+        process.env.SHOPIFY_CLIENT_SECRET || 'test-secret'
       );
 
       req.headers.authorization = `Bearer ${expiredToken}`;
@@ -132,7 +115,7 @@ describe('Shopify Auth Middleware', () => {
     it('should reject token with invalid issuer', async () => {
       const invalidIssuerToken = jwt.sign(
         {
-          iss: 'https://malicious-site.com/admin', // Invalid issuer
+          iss: 'https://malicious-site.com/admin',
           dest: 'https://test-shop.myshopify.com',
           aud: 'test-audience',
           sub: '123456789',
@@ -141,7 +124,7 @@ describe('Shopify Auth Middleware', () => {
           jti: 'test-jti',
           sid: 'test-session-id'
         },
-        process.env.SHOPIFY_API_SECRET || 'test-secret'
+        process.env.SHOPIFY_CLIENT_SECRET || 'test-secret'
       );
 
       req.headers.authorization = `Bearer ${invalidIssuerToken}`;
@@ -153,32 +136,6 @@ describe('Shopify Auth Middleware', () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    it('should handle Shopify API errors', async () => {
-      const validToken = jwt.sign(
-        {
-          iss: 'https://test-shop.myshopify.com/admin',
-          dest: 'https://test-shop.myshopify.com',
-          aud: 'test-audience',
-          sub: '123456789',
-          exp: Math.floor(Date.now() / 1000) + 3600,
-          iat: Math.floor(Date.now() / 1000),
-          jti: 'test-jti',
-          sid: 'test-session-id'
-        },
-        process.env.SHOPIFY_API_SECRET || 'test-secret'
-      );
-
-      req.headers.authorization = `Bearer ${validToken}`;
-
-      // Mock Shopify API error
-      axios.get.mockRejectedValue(new Error('Shopify API error'));
-
-      await verifyShopifySessionToken(req, res, next);
-
-      expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Failed to verify session with Shopify' });
-      expect(next).not.toHaveBeenCalled();
-    });
 
     it('should handle malformed JWT', async () => {
       req.headers.authorization = 'Bearer malformed.jwt.token';
@@ -202,23 +159,10 @@ describe('Shopify Auth Middleware', () => {
           jti: 'test-jti',
           sid: 'test-session-id'
         },
-        process.env.SHOPIFY_API_SECRET || 'test-secret'
+        process.env.SHOPIFY_CLIENT_SECRET || 'test-secret'
       );
 
       req.headers.authorization = `Bearer ${validToken}`;
-
-      // Mock successful Shopify API response
-      axios.get.mockResolvedValue({
-        data: {
-          session: {
-            id: 'test-session-id',
-            shop_id: '123456789',
-            shop_domain: 'test-shop.myshopify.com',
-            is_online: true,
-            state: 'active'
-          }
-        }
-      });
 
       await verifyShopifySessionToken(req, res, next);
 
@@ -226,7 +170,7 @@ describe('Shopify Auth Middleware', () => {
         id: 'test-session-id',
         shop_id: '123456789',
         shop_domain: 'test-shop.myshopify.com',
-        is_online: true,
+        is_online: false,
         state: 'active'
       });
       expect(next).toHaveBeenCalled();

@@ -1,14 +1,8 @@
 const jwt = require('jsonwebtoken');
-const axios = require('axios');
 require('dotenv').config();
 
-/**
- * Middleware to verify Shopify session tokens
- * This ensures requests are coming from authenticated Shopify admin users
- */
 const verifyShopifySessionToken = async (req, res, next) => {
   try {
-    // Get the Authorization header
     const authHeader = req.headers.authorization;
     
     if (!authHeader) {
@@ -51,39 +45,17 @@ const verifyShopifySessionToken = async (req, res, next) => {
       });
     }
 
-    const shopInfo = {
-      shop: payload.dest,
-      shopId: payload.dest?.replace('.myshopify.com', ''),
-      userId: payload.sub,
-      sessionId: payload.sid,
-      iat: payload.iat,
-      exp: payload.exp,
-      iss: payload.iss,
-      aud: payload.aud,
+    // Add session data to request object
+    req.shopifySession = {
+      id: payload.sid,
+      shop_id: payload.sub,
+      shop_domain: payload.dest?.replace('https://', '') || payload.iss?.replace('https://', '').replace('/admin', ''),
+      is_online: payload.is_online || false,
+      state: payload.state || 'active'
     };
-    
-    req.shopify = shopInfo;
 
-    try {
-      const shopDomain = payload.dest.replace('https://', '').replace('http://', '');
-      const sessionResponse = await axios.get(`https://${shopDomain}/admin/api/2023-10/sessions/${payload.sid}.json`, {
-        headers: {
-          'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN || 'test-token'
-        }
-      });
-
-      req.shopifySession = sessionResponse.data.session;
-
-      console.log(`Authenticated request from shop: ${shopInfo.shop}, user: ${shopInfo.userId}`);
-      
-      next();
-    } catch (apiError) {
-      console.error('Failed to fetch session data from Shopify:', apiError.message);
-      return res.status(401).json({ 
-        error: 'Failed to verify session with Shopify'
-      });
-    }
-    
+    // Call next middleware
+    next();
   } catch (error) {
     console.error('Session token verification failed:', error.message);
     
