@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const savingsGoalRouter = require('../../routes/savingsGoal');
 const User = require('../../models/User');
 const SavingsGoal = require('../../models/SavingsGoal');
+const EmailToken = require('../../models/EmailToken');
 const { generateImage, enhanceDescription } = require('../../services/xaiService');
 const { searchProducts } = require('../../services/webSearchService');
 
@@ -22,6 +23,16 @@ jest.mock('../../services/emailService', () => ({
   sendVerificationCode: jest.fn(),
   testEmail: jest.fn()
 }));
+
+const mockExchangePublicToken = jest.fn();
+const mockCreateProcessorToken = jest.fn();
+
+jest.mock('../../services/plaidService', () => {
+  return jest.fn().mockImplementation(() => ({
+    exchangePublicToken: mockExchangePublicToken,
+    createProcessorToken: mockCreateProcessorToken
+  }));
+});
 
 jest.mock('axios');
 
@@ -63,6 +74,9 @@ describe('SavingsGoal Routes', () => {
   beforeEach(async () => {
     await User.deleteMany({});
     await SavingsGoal.deleteMany({});
+
+    // Reset all mocks before each test
+    jest.clearAllMocks();
 
     testUser = new User({
       email: 'test@example.com',
@@ -2864,24 +2878,31 @@ describe('SavingsGoal Routes', () => {
 
     describe('POST /connect-plaid', () => {
       beforeEach(async () => {
-        // Clean up any existing guest sessions
+        // Clean up any existing data
         const GuestSession = mongoose.model('GuestSession');
         await GuestSession.deleteMany({});
+        await EmailToken.deleteMany({});
         
-        // Create a guest session for testing using the existing model
-        await new GuestSession({
+        // Create an email token for testing
+        await new EmailToken({
+          token: 'test-email-token',
           email: 'test@example.com',
-          guestToken: 'test-guest-token',
+          checkoutId: 'test-checkout-id',
           expiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 minutes from now
         }).save();
+
+        // Set up PlaidService mocks
+        mockExchangePublicToken.mockResolvedValue({
+          data: { access_token: 'test-access-token' }
+        });
       });
 
       it('should connect Plaid account successfully', async () => {
         const response = await request(app)
           .post('/api/savings-goal/connect-plaid')
           .send({ 
-            guestToken: 'test-guest-token',
-            plaidToken: 'test-plaid-token'
+            emailToken: 'test-email-token',
+            publicToken: 'test-plaid-token'
           })
           .expect(200);
 
@@ -2889,54 +2910,54 @@ describe('SavingsGoal Routes', () => {
         expect(response.body.message).toBe('Plaid account connected successfully');
       });
 
-      it('should return 400 if guestToken is missing', async () => {
+      it('should return 400 if emailToken is missing', async () => {
         const response = await request(app)
           .post('/api/savings-goal/connect-plaid')
-          .send({ plaidToken: 'test-plaid-token' })
+          .send({ publicToken: 'test-plaid-token' })
           .expect(400);
 
         expect(response.body.error).toBe('Either guest token or email token is required');
       });
 
-      it('should return 400 if plaidToken is missing', async () => {
+      it('should return 400 if publicToken is missing', async () => {
         const response = await request(app)
           .post('/api/savings-goal/connect-plaid')
-          .send({ guestToken: 'test-guest-token' })
+          .send({ emailToken: 'test-email-token' })
           .expect(400);
 
         expect(response.body.error).toBe('Plaid token is required');
       });
 
-      it('should return 401 if guest session is invalid', async () => {
+      it('should return 401 if email token is invalid', async () => {
         const response = await request(app)
           .post('/api/savings-goal/connect-plaid')
           .send({ 
-            guestToken: 'invalid-token',
-            plaidToken: 'test-plaid-token'
+            emailToken: 'invalid-token',
+            publicToken: 'test-plaid-token'
           })
           .expect(401);
 
-        expect(response.body.error).toBe('Invalid or expired guest session');
+        expect(response.body.error).toBe('Invalid or expired email token');
       });
 
-      it('should return 401 if guest session is expired', async () => {
-        // Create an expired guest session using the existing model
-        const GuestSession = mongoose.model('GuestSession');
-        await new GuestSession({
+      it('should return 401 if email token is expired', async () => {
+        // Create an expired email token
+        await new EmailToken({
+          token: 'expired-token',
           email: 'expired@example.com',
-          guestToken: 'expired-token',
+          checkoutId: 'expired-checkout-id',
           expiresAt: new Date(Date.now() - 1000) // 1 second ago
         }).save();
 
         const response = await request(app)
           .post('/api/savings-goal/connect-plaid')
           .send({ 
-            guestToken: 'expired-token',
-            plaidToken: 'test-plaid-token'
+            emailToken: 'expired-token',
+            publicToken: 'test-plaid-token'
           })
           .expect(401);
 
-        expect(response.body.error).toBe('Guest session expired');
+        expect(response.body.error).toBe('Invalid or expired email token');
       });
     });
 
@@ -2952,8 +2973,14 @@ describe('SavingsGoal Routes', () => {
           email: 'test@example.com',
           guestToken: 'test-guest-token',
           plaidToken: 'test-plaid-token',
+          plaidAccountId: 'test-account-id',
           expiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 minutes from now
         }).save();
+
+        // Set up PlaidService mocks
+        mockCreateProcessorToken.mockResolvedValue({
+          data: { processor_token: 'test-processor-token' }
+        });
 
         // Create a User record for the guest
         await new User({

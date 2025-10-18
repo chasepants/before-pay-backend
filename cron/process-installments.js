@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 require('dotenv').config();
-const User = require('../models/User');
+const ShopifyMerchant = require('../models/ShopifyMerchant');
 const SavingsGoal = require('../models/SavingsGoal');
 
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
@@ -30,6 +30,7 @@ async function processScheduledPayments(date = null) {
   console.log(`Finding savings goals for ${dayOfMonth} ${dayOfWeek}`);
 
   const savingsGoals = await SavingsGoal.find({
+    "product.type": "Shopify",
     $or: [
       { "schedule.dayOfMonth": dayOfMonth },
       { "schedule.dayOfWeek": dayOfWeek }
@@ -46,8 +47,8 @@ async function processScheduledPayments(date = null) {
       }
 
       const { savingsAmount, plaidToken, userId } = goal;
-      const user = await User.findById(userId);
-      if (!user || !user.unitAccountId) continue;
+
+      const merchant = await ShopifyMerchant.findOne({ shopifyShopId: "stashpay-2" });
 
       const achPaymentRequest = {
         type: 'achPayment',
@@ -56,10 +57,10 @@ async function processScheduledPayments(date = null) {
           direction: 'Debit',
           description: 'Funding',
           plaidProcessorToken: plaidToken,
-          tags: { savingsGoalId: goal._id }
+          tags: { savingsGoalId: goal._id, userId: userId }
         },
         relationships: {
-          account: { data: { type: 'account', id: user.unitAccountId } }
+          account: { data: { type: 'account', id: merchant.unitAccountId } }
         }
       };
 
@@ -77,6 +78,7 @@ async function processScheduledPayments(date = null) {
 
       console.log(`Created payment for ${goal.goalName}`);
     } catch (err) {
+      console.log(err);
       console.error('Cron payment error:', err?.message || err);
     }
   }

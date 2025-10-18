@@ -76,6 +76,8 @@ class PlaidService {
         public_token: publicToken
       });
 
+      console.log(response.data);
+
       return response;
     } catch (error) {
       throw new Error(`Failed to exchange public token: ${error.message}`);

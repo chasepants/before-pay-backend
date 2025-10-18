@@ -24,6 +24,7 @@ const guestSessionSchema = new mongoose.Schema({
   email: { type: String, required: true },
   guestToken: { type: String, required: true, unique: true },
   plaidToken: { type: String },
+  plaidAccountId: { type: String },
   expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } }
 }, { timestamps: true });
 
@@ -188,7 +189,8 @@ router.post('/verify-code', async (req, res) => {
 
 router.post('/connect-plaid', async (req, res) => {
   try {
-    const { guestToken, emailToken, plaidToken, publicToken, accountId } = req.body;
+    const { guestToken, emailToken, publicToken, accountId } = req.body;
+    console.log(publicToken);
     
     if (!guestToken && !emailToken) {
       return res.status(400).json({ error: 'Either guest token or email token is required' });
@@ -196,54 +198,41 @@ router.post('/connect-plaid', async (req, res) => {
 
     let guestSession;
 
-    if (guestToken) {
-      // Guest session flow (merchant onboarding)
-      guestSession = await GuestSession.findOne({ guestToken });
-      if (!guestSession) {
-        return res.status(401).json({ error: 'Invalid or expired guest session' });
-      }
-      if (new Date() > guestSession.expiresAt) {
-        await GuestSession.deleteOne({ _id: guestSession._id });
-        return res.status(401).json({ error: 'Guest session expired' });
-      }
-    } else if (emailToken) {
-      // Email token flow (abandoned cart) - create temporary guest session
-      const EmailToken = require('../models/EmailToken');
-      const emailTokenDoc = await EmailToken.findOne({ 
-        token: emailToken, 
-        // used: false,
-        expiresAt: { $gt: new Date() }
-      });
-      
-      if (!emailTokenDoc) {
-        return res.status(401).json({ error: 'Invalid or expired email token' });
-      }
-      
-      // Create or find existing guest session for this email
-      guestSession = await GuestSession.findOne({ email: emailTokenDoc.email });
-      if (!guestSession) {
-        guestSession = new GuestSession({
-          email: emailTokenDoc.email,
-          guestToken: require('crypto').randomBytes(32).toString('hex'),
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-        });
-        await guestSession.save();
-      }
-    }
+    const EmailToken = require('../models/EmailToken');
+    const emailTokenDoc = await EmailToken.findOne({ 
+      token: emailToken, 
+      // used: false,
+      expiresAt: { $gt: new Date() }
+    });
     
-    // Use PlaidService to exchange publicToken or store provided plaidToken
+    if (!emailTokenDoc) {
+      return res.status(401).json({ error: 'Invalid or expired email token' });
+    }
+
+    guestSession = await GuestSession.findOne({ email: emailTokenDoc.email });
+    if (!guestSession) {
+      guestSession = new GuestSession({
+        email: emailTokenDoc.email,
+        guestToken: require('crypto').randomBytes(32).toString('hex'),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+      });
+      await guestSession.save();
+    }
+
     if (publicToken) {
+      console.log('publicToken!!!!!!!!!!!!!');
       try {
+        console.log('calling plaidService.exchangePublicToken!!!!!!!!!!!!!');
         const plaidService = new PlaidService();
         const exchangeResp = await plaidService.exchangePublicToken(publicToken);
+        console.log('exchangeResp!!!!!!!!!!!!!');
+        console.log(exchangeResp.data);
         guestSession.plaidToken = exchangeResp.data.access_token;
         if (accountId) guestSession.plaidAccountId = accountId;
       } catch (ex) {
         console.error('Plaid exchange failed:', ex.message);
         return res.status(500).json({ error: 'Failed to exchange Plaid token' });
       }
-    } else if (plaidToken) {
-      guestSession.plaidToken = plaidToken;
     } else {
       return res.status(400).json({ error: 'Plaid token is required' });
     }
@@ -257,51 +246,6 @@ router.post('/connect-plaid', async (req, res) => {
   } catch (error) {
     console.error('Error connecting Plaid:', error);
     res.status(500).json({ error: 'Failed to connect Plaid account' });
-  }
-});
-
-router.post('/plaid/connect-sandbox', async (req, res) => {
-  try {
-    const { guestToken } = req.body;
-    if (!guestToken) return res.status(400).json({ error: 'Guest token is required' });
-
-    const guestSession = await GuestSession.findOne({ guestToken });
-    if (!guestSession) {
-      return res.status(401).json({ error: 'Invalid or expired guest session' });
-    }
-    if (new Date() > guestSession.expiresAt) {
-      await GuestSession.deleteOne({ _id: guestSession._id });
-      return res.status(401).json({ error: 'Guest session expired' });
-    }
-
-    try {
-      const plaidService = new PlaidService();
-
-      const publicTokenResponse = await plaidService.plaidClient.sandboxPublicTokenCreate({
-        institution_id: 'ins_109508',
-        initial_products: ['auth', 'transactions'],
-        options: {
-          webhook: 'https://api-sandbox.gostashpay.com/webhooks/plaid'
-        }
-      });
-      
-      const exchangeResponse = await plaidService.exchangePublicToken(publicTokenResponse.data.public_token);
-      
-      guestSession.plaidToken = exchangeResponse.data.access_token;
-      await guestSession.save();
-      
-      return res.status(200).json({ 
-        success: true, 
-        message: 'Plaid sandbox connected successfully',
-        accessToken: exchangeResponse.data.access_token
-      });
-    } catch (e) {
-      console.error('Plaid sandbox connect error:', e.message);
-      return res.status(500).json({ error: `Failed to connect Plaid (sandbox): ${e.message}` });
-    }
-  } catch (e) {
-    console.error('Plaid sandbox connect error:', e.message);
-    return res.status(500).json({ error: 'Failed to connect Plaid (sandbox)' });
   }
 });
 
@@ -452,14 +396,28 @@ router.post('/create-guest-goal', async (req, res) => {
       };
     }
 
+    // Create processor token for Unit Finance integration
+    const plaidService = new PlaidService();
+    let processorToken;
+    try {
+      const processorTokenResponse = await plaidService.createProcessorToken(
+        guestSession.plaidToken, 
+        guestSession.plaidAccountId
+      );
+      processorToken = processorTokenResponse.data.processor_token;
+    } catch (error) {
+      console.error('Failed to create processor token:', error);
+      return res.status(500).json({ error: 'Failed to create processor token for bank account' });
+    }
+
     const savingsGoal = new SavingsGoal({
       goalName: finalGoalName,
       description: finalDescription,
       targetAmount: parseFloat(targetAmount),
       savingsAmount: savingsAmount,
       product: finalProduct,
-      userId: user._id, // Use the User's _id
-      plaidToken: guestSession.plaidToken,
+      userId: user._id,
+      plaidToken: processorToken,
       source: 'guest-checkout',
       bank: bankDetails ? {
         bankName: bankDetails.bankName,

@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 require('dotenv').config();
-const { processScheduledPayments } = require('./process-payments');
+const { processScheduledPayments } = require('./process-installments');
 
 async function connectDB() {
   try {
