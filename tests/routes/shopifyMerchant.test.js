@@ -95,6 +95,7 @@ describe('Shopify Merchant Routes', () => {
           unitApplicationId: 'app-123',
           unitCustomerId: 'customer-456',
           unitAccountId: 'account-789',
+          abandonedCartEmailsEnabled: true,
           createdAt: merchant.createdAt.toISOString(),
           updatedAt: merchant.updatedAt.toISOString()
         }
@@ -493,6 +494,88 @@ describe('Shopify Merchant Routes', () => {
         .expect(500);
 
       expect(response.body).toEqual({ error: 'Failed to toggle StashPay' });
+      
+      // Restore original method
+      ShopifyMerchant.findById = originalFindById;
+    });
+  });
+
+  describe('PUT /api/shopify-merchant/toggle-abandoned-cart-emails/:merchantId', () => {
+    let merchant;
+
+    beforeEach(async () => {
+      merchant = new ShopifyMerchant({
+        shopifyShopId: 'test-shop',
+        onboardingStatus: 'completed'
+      });
+      await merchant.save();
+    });
+
+    it('should toggle abandoned cart emails successfully', async () => {
+      const response = await request(app)
+        .put(`/api/shopify-merchant/toggle-abandoned-cart-emails/${merchant._id}`)
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ enabled: false })
+        .expect(200);
+
+      expect(response.body).toEqual({
+        message: 'Abandoned cart email settings updated successfully',
+        success: true,
+        abandonedCartEmailsEnabled: false
+      });
+
+      // Verify the merchant was updated in the database
+      const updatedMerchant = await ShopifyMerchant.findById(merchant._id);
+      expect(updatedMerchant.abandonedCartEmailsEnabled).toBe(false);
+    });
+
+    it('should return 404 when merchant not found', async () => {
+      const response = await request(app)
+        .put('/api/shopify-merchant/toggle-abandoned-cart-emails/507f1f77bcf86cd799439011')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ enabled: true })
+        .expect(404);
+
+      expect(response.body).toEqual({ error: 'Merchant not found' });
+    });
+
+    it('should return 400 when merchant onboarding not completed', async () => {
+      const pendingMerchant = new ShopifyMerchant({
+        shopifyShopId: 'pending-shop',
+        onboardingStatus: 'pending'
+      });
+      await pendingMerchant.save();
+
+      const response = await request(app)
+        .put(`/api/shopify-merchant/toggle-abandoned-cart-emails/${pendingMerchant._id}`)
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ enabled: true })
+        .expect(400);
+
+      expect(response.body).toEqual({ 
+        error: 'Merchant must complete onboarding before configuring settings' 
+      });
+    });
+
+    it('should return 401 when no token provided', async () => {
+      const response = await request(app)
+        .put(`/api/shopify-merchant/toggle-abandoned-cart-emails/${merchant._id}`)
+        .send({ enabled: true })
+        .expect(401);
+    });
+
+    it('should handle database errors', async () => {
+      // Mock the ShopifyMerchant.findById to throw an error
+      const originalFindById = ShopifyMerchant.findById;
+      ShopifyMerchant.findById = jest.fn().mockRejectedValue(new Error('Database error'));
+      
+      const response = await request(app)
+        .put(`/api/shopify-merchant/toggle-abandoned-cart-emails/${merchant._id}`)
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({ enabled: true })
+        .expect(500);
+
+      expect(response.body).toEqual({ error: 'Failed to update abandoned cart email settings' });
       
       // Restore original method
       ShopifyMerchant.findById = originalFindById;

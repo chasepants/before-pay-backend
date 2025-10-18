@@ -35,6 +35,10 @@ const shopifyMerchantSchema = new mongoose.Schema({
   unitApplicationFormToken: {
     type: String,
     default: null
+  },
+  abandonedCartEmailsEnabled: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true

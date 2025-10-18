@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const CheckoutCart = require('../../models/CheckoutCart');
+const ShopifyMerchant = require('../../models/ShopifyMerchant');
 const { processAbandonedCarts } = require('../../cron/abandoned-carts');
 
 // Mock the email service
@@ -27,6 +28,7 @@ describe('Abandoned Carts Cron Job', () => {
   beforeEach(async () => {
     // Clear the database
     await CheckoutCart.deleteMany({});
+    await ShopifyMerchant.deleteMany({});
     
     // Reset mocks
     jest.clearAllMocks();
@@ -37,6 +39,21 @@ describe('Abandoned Carts Cron Job', () => {
 
   describe('processAbandonedCarts', () => {
     it('should process abandoned checkouts and send emails', async () => {
+      // Create merchants with emails enabled
+      const merchant1 = new ShopifyMerchant({
+        shopifyShopId: 'shop1',
+        onboardingStatus: 'completed',
+        abandonedCartEmailsEnabled: true
+      });
+      await merchant1.save();
+
+      const merchant2 = new ShopifyMerchant({
+        shopifyShopId: 'shop2',
+        onboardingStatus: 'completed',
+        abandonedCartEmailsEnabled: true
+      });
+      await merchant2.save();
+
       // Create test checkouts - some abandoned, some not
       const now = new Date();
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
@@ -171,6 +188,14 @@ describe('Abandoned Carts Cron Job', () => {
     });
 
     it('should handle email sending errors gracefully', async () => {
+      // Create merchant with emails enabled
+      const merchant = new ShopifyMerchant({
+        shopifyShopId: 'error-shop',
+        onboardingStatus: 'completed',
+        abandonedCartEmailsEnabled: true
+      });
+      await merchant.save();
+
       // Create abandoned checkout
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const abandonedCheckout = new CheckoutCart({
@@ -207,6 +232,16 @@ describe('Abandoned Carts Cron Job', () => {
     });
 
     it('should respect MAX_EMAILS_PER_RUN limit', async () => {
+      // Create merchants with emails enabled for all shops
+      for (let i = 0; i < 55; i++) {
+        const merchant = new ShopifyMerchant({
+          shopifyShopId: `shop${i}`,
+          onboardingStatus: 'completed',
+          abandonedCartEmailsEnabled: true
+        });
+        await merchant.save();
+      }
+
       // Create more than MAX_EMAILS_PER_RUN (50) abandoned checkouts
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const checkouts = [];
@@ -281,6 +316,14 @@ describe('Abandoned Carts Cron Job', () => {
 
   describe('Email Content Generation', () => {
     it('should generate proper HTML email content', async () => {
+      // Create merchant with emails enabled
+      const merchant = new ShopifyMerchant({
+        shopifyShopId: 'test-shop',
+        onboardingStatus: 'completed',
+        abandonedCartEmailsEnabled: true
+      });
+      await merchant.save();
+
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const checkout = new CheckoutCart({
         checkoutId: 'test-checkout',
@@ -315,6 +358,14 @@ describe('Abandoned Carts Cron Job', () => {
     });
 
     it('should generate proper text email content', async () => {
+      // Create merchant with emails enabled
+      const merchant = new ShopifyMerchant({
+        shopifyShopId: 'test-shop',
+        onboardingStatus: 'completed',
+        abandonedCartEmailsEnabled: true
+      });
+      await merchant.save();
+
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const checkout = new CheckoutCart({
         checkoutId: 'test-checkout',
@@ -350,6 +401,14 @@ describe('Abandoned Carts Cron Job', () => {
     });
 
     it('should handle empty line items gracefully', async () => {
+      // Create merchant with emails enabled
+      const merchant = new ShopifyMerchant({
+        shopifyShopId: 'test-shop',
+        onboardingStatus: 'completed',
+        abandonedCartEmailsEnabled: true
+      });
+      await merchant.save();
+
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const checkout = new CheckoutCart({
         checkoutId: 'empty-checkout',

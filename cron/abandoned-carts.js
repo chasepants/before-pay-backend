@@ -1,6 +1,7 @@
 const CheckoutCart = require('../models/CheckoutCart');
 const emailService = require('../services/emailService');
 const EmailToken = require('../models/EmailToken');
+const ShopifyMerchant = require('../models/ShopifyMerchant');
 const { v4: uuidv4 } = require('uuid');
 
 const ABANDONMENT_THRESHOLD_HOURS = 1;
@@ -50,6 +51,20 @@ async function processAbandonedCarts(thresholdMinutes = null) {
 
 async function processAbandonedCheckout(checkout) {
   try {
+    // Check if the merchant has abandoned cart emails enabled
+    const merchant = await ShopifyMerchant.findOne({ 
+      shopifyShopId: checkout.shopDomain.replace('.myshopify.com', '') 
+    });
+    
+    if (!merchant || !merchant.abandonedCartEmailsEnabled) {
+      console.log(`Skipping abandoned cart email for checkout ${checkout.checkoutId} - emails disabled for merchant ${checkout.shopDomain}`);
+      checkout.status = 'abandoned';
+      checkout.abandonedAt = new Date();
+      checkout.emailSent = false; // Mark as not sent since we skipped it
+      await checkout.save();
+      return;
+    }
+
     checkout.status = 'abandoned';
     checkout.abandonedAt = new Date();
     checkout.emailSent = true;

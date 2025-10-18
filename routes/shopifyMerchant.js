@@ -28,6 +28,7 @@ router.get('/status/:shopId', verifyShopifySessionToken, async (req, res) => {
         unitApplicationId: merchant.unitApplicationId,
         unitCustomerId: merchant.unitCustomerId,
         unitAccountId: merchant.unitAccountId,
+        abandonedCartEmailsEnabled: merchant.abandonedCartEmailsEnabled,
         createdAt: merchant.createdAt,
         updatedAt: merchant.updatedAt
       }
@@ -212,6 +213,37 @@ router.put('/toggle/:merchantId', verifyShopifySessionToken, async (req, res) =>
   } catch (error) {
     console.error('Error toggling StashPay:', error);
     res.status(500).json({ error: 'Failed to toggle StashPay' });
+  }
+});
+
+// Toggle abandoned cart emails for merchant
+router.put('/toggle-abandoned-cart-emails/:merchantId', verifyShopifySessionToken, async (req, res) => {
+  try {
+    const { merchantId } = req.params;
+    const { enabled } = req.body;
+    
+    const merchant = await ShopifyMerchant.findById(merchantId);
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+    
+    if (merchant.onboardingStatus !== 'completed') {
+      return res.status(400).json({ 
+        error: 'Merchant must complete onboarding before configuring settings' 
+      });
+    }
+    
+    merchant.abandonedCartEmailsEnabled = enabled;
+    await merchant.save();
+    
+    res.json({
+      message: 'Abandoned cart email settings updated successfully',
+      success: true,
+      abandonedCartEmailsEnabled: merchant.abandonedCartEmailsEnabled
+    });
+  } catch (error) {
+    console.error('Error toggling abandoned cart emails:', error);
+    res.status(500).json({ error: 'Failed to update abandoned cart email settings' });
   }
 });
 
