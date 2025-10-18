@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const ShopifyMerchant = require('../models/ShopifyMerchant');
+const CheckoutCart = require('../models/CheckoutCart');
+const SavingsGoal = require('../models/SavingsGoal');
 const { createUnitApplicationForm } = require('../services/unitMerchantService');
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
 
@@ -244,6 +246,70 @@ router.put('/toggle-abandoned-cart-emails/:merchantId', verifyShopifySessionToke
   } catch (error) {
     console.error('Error toggling abandoned cart emails:', error);
     res.status(500).json({ error: 'Failed to update abandoned cart email settings' });
+  }
+});
+
+router.get('/insights/:merchantId', verifyShopifySessionToken, async (req, res) => {
+  try {
+    const { merchantId } = req.params;
+
+    const merchant = await ShopifyMerchant.findById(merchantId);
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    if (merchant.onboardingStatus !== 'completed') {
+      return res.status(400).json({
+        error: 'Merchant must complete onboarding to view insights'
+      });
+    }
+
+    const shopDomain = `${merchant.shopifyShopId}.myshopify.com`;
+
+    const activeCheckouts = await CheckoutCart.countDocuments({
+      shopDomain,
+      status: 'active'
+    });
+
+    const abandonedCheckouts = await CheckoutCart.countDocuments({
+      shopDomain,
+      status: 'abandoned'
+    });
+
+    const emailsSent = await CheckoutCart.countDocuments({
+      shopDomain,
+      emailSent: true
+    });
+
+    const ongoingInstallments = await SavingsGoal.countDocuments({
+      'product.type': 'Shopify',
+      'product.shopDomain': shopDomain,
+      isPaused: false
+    });
+
+    const totalInstallments = await SavingsGoal.countDocuments({
+      'product.type': 'Shopify',
+      'product.shopDomain': shopDomain
+    });
+
+    const conversionRate = activeCheckouts + abandonedCheckouts > 0 
+      ? ((ongoingInstallments / (activeCheckouts + abandonedCheckouts)) * 100).toFixed(1)
+      : 0;
+
+    res.json({
+      success: true,
+      insights: {
+        activeCheckouts,
+        abandonedCheckouts,
+        emailsSent,
+        ongoingInstallments,
+        totalInstallments,
+        conversionRate: `${conversionRate}%`
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching merchant insights:', error);
+    res.status(500).json({ error: 'Failed to fetch merchant insights' });
   }
 });
 

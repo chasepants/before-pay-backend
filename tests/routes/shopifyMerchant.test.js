@@ -632,4 +632,166 @@ describe('Shopify Merchant Routes', () => {
       ShopifyMerchant.findById = originalFindById;
     });
   });
+
+  describe('GET /api/shopify-merchant/insights/:merchantId', () => {
+    let merchant;
+
+    beforeEach(async () => {
+      // Create a completed merchant for these tests
+      merchant = new ShopifyMerchant({
+        shopifyShopId: 'test-shop',
+        onboardingStatus: 'completed'
+      });
+      await merchant.save();
+    });
+
+    it('should return merchant insights successfully', async () => {
+      // Mock the database queries
+      const CheckoutCart = require('../../models/CheckoutCart');
+      const SavingsGoal = require('../../models/SavingsGoal');
+      
+      CheckoutCart.countDocuments = jest.fn()
+        .mockResolvedValueOnce(5)  // activeCheckouts
+        .mockResolvedValueOnce(10) // abandonedCheckouts
+        .mockResolvedValueOnce(8); // emailsSent
+
+      SavingsGoal.countDocuments = jest.fn()
+        .mockResolvedValueOnce(3)  // ongoingInstallments
+        .mockResolvedValueOnce(7); // totalInstallments
+
+      const response = await request(app)
+        .get(`/api/shopify-merchant/insights/${merchant._id}`)
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(200);
+
+      expect(response.body).toEqual({
+        success: true,
+        insights: {
+          activeCheckouts: 5,
+          abandonedCheckouts: 10,
+          emailsSent: 8,
+          ongoingInstallments: 3,
+          totalInstallments: 7,
+          conversionRate: '20.0%'
+        }
+      });
+
+      // Verify the correct queries were made
+      expect(CheckoutCart.countDocuments).toHaveBeenCalledWith({
+        shopDomain: 'test-shop.myshopify.com',
+        status: 'active'
+      });
+      expect(CheckoutCart.countDocuments).toHaveBeenCalledWith({
+        shopDomain: 'test-shop.myshopify.com',
+        status: 'abandoned'
+      });
+      expect(CheckoutCart.countDocuments).toHaveBeenCalledWith({
+        shopDomain: 'test-shop.myshopify.com',
+        emailSent: true
+      });
+      expect(SavingsGoal.countDocuments).toHaveBeenCalledWith({
+        'product.type': 'Shopify',
+        'product.shopDomain': 'test-shop.myshopify.com',
+        isPaused: false
+      });
+      expect(SavingsGoal.countDocuments).toHaveBeenCalledWith({
+        'product.type': 'Shopify',
+        'product.shopDomain': 'test-shop.myshopify.com'
+      });
+    });
+
+    it('should return 404 when merchant not found', async () => {
+      const response = await request(app)
+        .get('/api/shopify-merchant/insights/507f1f77bcf86cd799439011')
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(404);
+
+      expect(response.body).toEqual({ error: 'Merchant not found' });
+    });
+
+    it('should return 400 when merchant onboarding not completed', async () => {
+      const pendingMerchant = new ShopifyMerchant({
+        shopifyShopId: 'pending-shop',
+        onboardingStatus: 'pending'
+      });
+      await pendingMerchant.save();
+
+      const response = await request(app)
+        .get(`/api/shopify-merchant/insights/${pendingMerchant._id}`)
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(400);
+
+      expect(response.body).toEqual({
+        error: 'Merchant must complete onboarding to view insights'
+      });
+    });
+
+    it('should return 401 when no token provided', async () => {
+      const response = await request(app)
+        .get(`/api/shopify-merchant/insights/${merchant._id}`)
+        .expect(401);
+    });
+
+    it('should handle database errors', async () => {
+      // Mock the ShopifyMerchant.findById to throw an error
+      const originalFindById = ShopifyMerchant.findById;
+      ShopifyMerchant.findById = jest.fn().mockRejectedValue(new Error('Database error'));
+
+      const response = await request(app)
+        .get(`/api/shopify-merchant/insights/${merchant._id}`)
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(500);
+
+      expect(response.body).toEqual({ error: 'Failed to fetch merchant insights' });
+
+      // Restore original method
+      ShopifyMerchant.findById = originalFindById;
+    });
+
+    it('should calculate conversion rate correctly', async () => {
+      // Mock the database queries with specific values
+      const CheckoutCart = require('../../models/CheckoutCart');
+      const SavingsGoal = require('../../models/SavingsGoal');
+      
+      CheckoutCart.countDocuments = jest.fn()
+        .mockResolvedValueOnce(20) // activeCheckouts
+        .mockResolvedValueOnce(30) // abandonedCheckouts
+        .mockResolvedValueOnce(25); // emailsSent
+
+      SavingsGoal.countDocuments = jest.fn()
+        .mockResolvedValueOnce(5)  // ongoingInstallments
+        .mockResolvedValueOnce(8); // totalInstallments
+
+      const response = await request(app)
+        .get(`/api/shopify-merchant/insights/${merchant._id}`)
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(200);
+
+      // Conversion rate should be (5 / (20 + 30)) * 100 = 10.0%
+      expect(response.body.insights.conversionRate).toBe('10.0%');
+    });
+
+    it('should handle zero checkouts gracefully', async () => {
+      // Mock the database queries with zero values
+      const CheckoutCart = require('../../models/CheckoutCart');
+      const SavingsGoal = require('../../models/SavingsGoal');
+      
+      CheckoutCart.countDocuments = jest.fn()
+        .mockResolvedValueOnce(0) // activeCheckouts
+        .mockResolvedValueOnce(0) // abandonedCheckouts
+        .mockResolvedValueOnce(0); // emailsSent
+
+      SavingsGoal.countDocuments = jest.fn()
+        .mockResolvedValueOnce(0)  // ongoingInstallments
+        .mockResolvedValueOnce(0); // totalInstallments
+
+      const response = await request(app)
+        .get(`/api/shopify-merchant/insights/${merchant._id}`)
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(200);
+
+      // Conversion rate should be 0 when no checkouts
+      expect(response.body.insights.conversionRate).toBe('0%');
+    });
+  });
 });
