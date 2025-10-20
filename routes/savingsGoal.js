@@ -55,7 +55,6 @@ router.options('*', (req, res) => {
 
 router.get('/', ensureAuthenticated, async (req, res) => {
   try {
-    // Fetch savings goals by userId for both user types
     const goals = await SavingsGoal.find({ userId: req.user._id });
     res.json(goals);
   } catch (error) {
@@ -201,7 +200,6 @@ router.post('/connect-plaid', async (req, res) => {
     const EmailToken = require('../models/EmailToken');
     const emailTokenDoc = await EmailToken.findOne({ 
       token: emailToken, 
-      // used: false,
       expiresAt: { $gt: new Date() }
     });
     
@@ -261,7 +259,6 @@ router.post('/plaid/create-link-token', async (req, res) => {
     let clientName = 'StashPay';
 
     if (guestToken) {
-      // Guest session flow (merchant onboarding)
       const guestSession = await GuestSession.findOne({ guestToken });
       if (!guestSession) {
         return res.status(401).json({ error: 'Invalid or expired guest session' });
@@ -273,7 +270,6 @@ router.post('/plaid/create-link-token', async (req, res) => {
       userId = guestSession._id;
       clientName = 'StashPay Guest Checkout';
     } else if (emailToken) {
-      // Email token flow (abandoned cart)
       const EmailToken = require('../models/EmailToken');
       const emailTokenDoc = await EmailToken.findOne({ 
         token: emailToken,
@@ -284,7 +280,6 @@ router.post('/plaid/create-link-token', async (req, res) => {
         return res.status(401).json({ error: 'Invalid or expired email token' });
       }
       
-      // Use email as user ID for Plaid
       userId = emailToken;
       clientName = 'StashPay Savings Plan';
     }
@@ -323,7 +318,6 @@ router.post('/create-guest-goal', async (req, res) => {
     let guestSession;
 
     if (guestToken) {
-      // Guest session flow (merchant onboarding)
       guestSession = await GuestSession.findOne({ guestToken });
       if (!guestSession) {
         return res.status(401).json({ error: 'Invalid or expired guest session' });
@@ -336,7 +330,6 @@ router.post('/create-guest-goal', async (req, res) => {
         return res.status(401).json({ error: 'No Plaid account linked. Please link your bank account first.' });
       }
     } else if (emailToken) {
-      // Email token flow (abandoned cart) - find existing guest session
       const EmailToken = require('../models/EmailToken');
       const CheckoutCart = require('../models/CheckoutCart');
       
@@ -349,13 +342,11 @@ router.post('/create-guest-goal', async (req, res) => {
         return res.status(401).json({ error: 'Invalid or expired email token' });
       }
       
-      // Find existing guest session for this email
       guestSession = await GuestSession.findOne({ email: emailTokenDoc.email });
       if (!guestSession || !guestSession.plaidToken) {
         return res.status(401).json({ error: 'No Plaid account linked. Please link your bank account first.' });
       }
       
-      // Fetch the checkout data for better naming and product details
       var checkoutData = await CheckoutCart.findOne({ 
         checkoutId: emailTokenDoc.checkoutId,
         email: emailTokenDoc.email 
@@ -366,11 +357,10 @@ router.post('/create-guest-goal', async (req, res) => {
       }
     }
     
-    const savingsAmount = parseFloat(targetAmount) / 4; // Always 4 installments
+    const savingsAmount = parseFloat(targetAmount) / 4;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() + 1);
 
-    // Find existing User record for the guest (should already exist)
     const user = await User.findOne({ email: guestSession.email });
     if (!user) {
       return res.status(400).json({ error: 'User account not found. Please create your account first.' });
@@ -396,7 +386,6 @@ router.post('/create-guest-goal', async (req, res) => {
       };
     }
 
-    // Create processor token for Unit Finance integration
     const plaidService = new PlaidService();
     let processorToken;
     try {
@@ -506,11 +495,9 @@ router.post('/', requireSavingsAccountUser, async (req, res) => {
   }
 });
 
-// @todo: we need to check that they are authenticated AND a savings-account user. Are we doing that?
 router.delete('/:id', requireSavingsAccountUser, async (req, res) => {
   const { id } = req.params;
   try {
-    // Only savings account users can delete goals
     const savingsGoal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
     if (!savingsGoal) return res.status(404).json({ error: 'Savings goal not found' });
     await SavingsGoal.deleteOne({ _id: id });
@@ -520,13 +507,11 @@ router.delete('/:id', requireSavingsAccountUser, async (req, res) => {
   }
 });
 
-// @todo: we need to check that they are authenticated AND a savings-account user. Are we doing that?
 router.put('/:id', requireSavingsAccountUser, async (req, res) => {
   const { id } = req.params;
   const { goalName, description, targetAmount } = req.body;
   console.log(req.body)
   try {
-    // Only savings account users can update goals
     const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
     if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
     
