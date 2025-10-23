@@ -369,6 +369,15 @@ async function handleMerchantApplicationApproved(eventData) {
     merchant.onboardingStatus = 'in_progress';
     await merchant.save();
   }
+
+  const user = await User.findOne({ shopifyMerchantId: merchantId });
+  if (user) {
+    user.status = 'approved';
+    await user.save();
+    console.log(`User ${user.email} status updated to approved for merchant ${merchant.shopifyShopId}`);
+  } else {
+    console.warn(`No user found for merchantId: ${merchantId}`);
+  }
   
   console.log(`Merchant ${merchant.shopifyShopId} application approved with applicationId: ${applicationId}`);
 }
