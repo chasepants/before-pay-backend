@@ -7,7 +7,7 @@ require('./config/passport');
 const authRoutes = require('./routes/auth');
 const savingsGoalRoutes = require('./routes/savingsGoal');
 const bankRoutes = require('./routes/bank');
-const webhook = require('./webhooks/index');
+const { webhook } = require('./webhooks/index');
 const shopifyPubsub = require('./webhooks/shopifyPubsub');
 const { processScheduledPayments } = require('./cron/process-payments');
 const { processAbandonedCarts } = require('./cron/abandoned-carts');

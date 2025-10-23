@@ -4,10 +4,8 @@ const ShopifyMerchant = require('../models/ShopifyMerchant');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 const axios = require('axios');
 
-// Create Unit instance - can be overridden for testing
 let unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 
-// Function to set Unit instance for testing
 function setUnitInstance(unitInstance) {
   unit = unitInstance;
 }
@@ -117,7 +115,6 @@ async function handleTransactionCreated(eventData) {
     const batchId = tags.batchId;
     if (!batchId) return;
 
-    // Debug: Check what goals exist with this batchId
     const allGoals = await SavingsGoal.find({});
     const goalsWithBatch = allGoals.filter(g => g.transfers.some(t => t.batchId === batchId));
     console.log(`Total goals in DB: ${allGoals.length}`);
@@ -126,11 +123,9 @@ async function handleTransactionCreated(eventData) {
       console.log(`Goal ${g._id} (${g.goalName}) has ${g.transfers.filter(t => t.batchId === batchId).length} transfers with batchId ${batchId}`);
     });
 
-    // Find all goals that have pending credit transfers for this batch
     const goals = await SavingsGoal.find({ 'transfers.batchId': batchId });
     console.log(`Found ${goals.length} goals for batch ${batchId}`);
-    
-    // Also try a different query approach
+
     const goalsAlt = await SavingsGoal.find({
       transfers: {
         $elemMatch: {
@@ -173,7 +168,6 @@ async function handleTransactionCreated(eventData) {
           console.log(`Failed to update transfer ${transfer._id} transaction id in goal ${goal._id}`);
         }
 
-        // Use findOneAndUpdate to update the specific transfer
         const update_status_and_current_amount = await SavingsGoal.findOneAndUpdate(
           { 
             _id: goal._id,
@@ -200,7 +194,6 @@ async function handleTransactionCreated(eventData) {
     return;
   }
 
-  // existing single-payment flow fallback
   const paymentId = eventData.relationships?.payment?.data?.id;
   if (!paymentId) return;
   
@@ -349,8 +342,7 @@ async function handleMerchantApplicationCreated(eventData) {
     console.warn(`No merchant found for merchantId: ${merchantId}`);
     return;
   }
-  
-  // Save the Unit application ID
+
   merchant.unitApplicationId = applicationId;
   merchant.onboardingStatus = 'in_progress';
   await merchant.save();
@@ -372,8 +364,7 @@ async function handleMerchantApplicationApproved(eventData) {
     console.warn(`No merchant found for merchantId: ${merchantId}`);
     return;
   }
-  
-  // Only update status if not already completed
+
   if (merchant.onboardingStatus !== 'completed') {
     merchant.onboardingStatus = 'in_progress';
     await merchant.save();
@@ -400,14 +391,12 @@ async function handleMerchantCustomerCreated(eventData) {
   }
   
   console.log(`Found merchant ${merchant.shopifyShopId}, current status: ${merchant.onboardingStatus}`);
-  
-  // Update merchant with customer ID
+
   merchant.unitCustomerId = customerId;
   await merchant.save();
   
   console.log(`Merchant ${merchant.shopifyShopId} customer created with customerId: ${customerId}`);
-  
-  // Create a deposit account for the merchant
+
   const depositAccountRequest = {
     type: 'depositAccount',
     attributes: {
@@ -427,8 +416,7 @@ async function handleMerchantCustomerCreated(eventData) {
   try {
     const accountResponse = await unit.accounts.create(depositAccountRequest);
     const accountId = accountResponse.data.id;
-    
-    // Update merchant with account ID and complete onboarding
+
     merchant.unitAccountId = accountId;
     merchant.onboardingStatus = 'completed';
     await merchant.save();
@@ -460,9 +448,7 @@ async function handleMerchantAccountCreated(eventData) {
   }
   
   console.log(`Found merchant ${merchant.shopifyShopId}, current status: ${merchant.onboardingStatus}`);
-  
-  // This is a backup handler - the customer.created handler should have already created the account
-  // But if for some reason it didn't, we'll update the status here
+
   if (!merchant.unitAccountId) {
     merchant.unitAccountId = accountId;
     merchant.onboardingStatus = 'completed';
@@ -489,7 +475,6 @@ const webhook = async (req, res) => {
   for (const eventData of event.data) {
     switch (eventData.type) {
       case 'application.approved':
-        // Check if this is a merchant application (has merchantId in tags)
         if (eventData.attributes.tags?.merchantId) {
           await handleMerchantApplicationApproved(eventData);
         } else {
@@ -500,7 +485,6 @@ const webhook = async (req, res) => {
         await handleApplicationDenied(eventData);
         break;
       case 'customer.created':
-        // Check if this is a merchant customer (has merchantId in tags)
         if (eventData.attributes.tags?.merchantId) {
           await handleMerchantCustomerCreated(eventData);
         } else {
@@ -508,7 +492,6 @@ const webhook = async (req, res) => {
         }
         break;
       case 'account.created':
-        // Check if this is a merchant account (has merchantId in tags)
         if (eventData.attributes.tags?.merchantId) {
           await handleMerchantAccountCreated(eventData);
         } else {
@@ -522,7 +505,6 @@ const webhook = async (req, res) => {
         await handleApplicationPendingReview(eventData);
         break;
       case 'application.created':
-        // Check if this is a merchant application (has merchantId in tags)
         if (eventData.attributes.tags?.merchantId) {
           await handleMerchantApplicationCreated(eventData);
         } else {
@@ -532,8 +514,6 @@ const webhook = async (req, res) => {
       case 'document.approved':
         await handleDocumentApproved(eventData);
         break;
-
-      // Payments lifecycle
       case 'payment.created':
         await handlePaymentCreated(eventData);
         break;
