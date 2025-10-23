@@ -3,10 +3,10 @@ const router = express.Router();
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const CheckoutCart = require('../models/CheckoutCart');
 const SavingsGoal = require('../models/SavingsGoal');
+const User = require('../models/User');
 const { createUnitApplicationForm } = require('../services/unitMerchantService');
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
 
-// Get merchant status by Shopify shop ID
 router.get('/status/:shopId', verifyShopifySessionToken, async (req, res) => {
   try {
     const { shopId } = req.params;
@@ -49,14 +49,12 @@ router.post('/register', verifyShopifySessionToken, async (req, res) => {
       return res.status(400).json({ error: 'shopifyShopId is required' });
     }
     
-    // Check if merchant already exists
     let merchant = await ShopifyMerchant.findOne({ shopifyShopId });
     
     if (merchant) {
       merchant.onboardingStatus = 'in_progress';
       await merchant.save();
     } else {
-      // Create new merchant
       merchant = new ShopifyMerchant({
         shopifyShopId,
         onboardingStatus: 'in_progress'
@@ -84,7 +82,61 @@ router.post('/register', verifyShopifySessionToken, async (req, res) => {
   }
 });
 
-// Start Unit application process
+router.post('/register-with-credentials', verifyShopifySessionToken, async (req, res) => {
+  try {
+    const { shopifyShopId, email, password, firstName, lastName } = req.body;
+    
+    if (!shopifyShopId || !email || !password || !firstName || !lastName) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
+
+    let merchant = await ShopifyMerchant.findOne({ shopifyShopId });
+    if (!merchant) {
+      merchant = new ShopifyMerchant({
+        shopifyShopId,
+        onboardingStatus: 'in_progress'
+      });
+      await merchant.save();
+    }
+
+    const user = new User({
+      email,
+      firstName,
+      lastName,
+      userType: 'merchant',
+      shopifyMerchantId: merchant._id,
+      status: 'pending'
+    });
+    
+    await user.save();
+    
+    res.json({
+      message: 'Merchant user created successfully',
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        userType: user.userType,
+        shopifyMerchantId: user.shopifyMerchantId
+      },
+      merchant: {
+        id: merchant._id,
+        shopifyShopId: merchant.shopifyShopId,
+        onboardingStatus: merchant.onboardingStatus
+      }
+    });
+  } catch (error) {
+    console.error('Error registering merchant with credentials:', error);
+    res.status(500).json({ error: 'Failed to register merchant with credentials' });
+  }
+});
+
 router.post('/start-unit-application/:merchantId', verifyShopifySessionToken, async (req, res) => {
   try {
     const { merchantId } = req.params;
@@ -94,13 +146,11 @@ router.post('/start-unit-application/:merchantId', verifyShopifySessionToken, as
       return res.status(404).json({ error: 'Merchant not found' });
     }
     
-    // Create Unit application form
     const applicationForm = await createUnitApplicationForm({
       merchantId: merchant._id,
       shopifyShopId: merchant.shopifyShopId
     });
     
-    // Update merchant with Unit application details
     merchant.onboardingStatus = 'in_progress';
     merchant.unitApplicationFormId = applicationForm.id;
     merchant.unitApplicationFormUrl = applicationForm.links.related.href;
@@ -127,13 +177,11 @@ router.post('/webhook/unit-application-update', async (req, res) => {
   try {
     const { applicationId, status, accountId } = req.body;
     
-    // Find merchant by Unit application ID
     const merchant = await ShopifyMerchant.findOne({ unitApplicationId: applicationId });
     if (!merchant) {
       return res.status(404).json({ error: 'Merchant not found' });
     }
     
-    // Update merchant status based on Unit response
     switch (status) {
       case 'approved':
         merchant.kybStatus = 'approved';
@@ -161,7 +209,6 @@ router.post('/webhook/unit-application-update', async (req, res) => {
   }
 });
 
-// Get merchant dashboard data
 router.get('/dashboard/:merchantId', verifyShopifySessionToken, async (req, res) => {
   try {
     const { merchantId } = req.params;
@@ -189,7 +236,6 @@ router.get('/dashboard/:merchantId', verifyShopifySessionToken, async (req, res)
   }
 });
 
-// Enable/disable StashPay for merchant
 router.put('/toggle/:merchantId', verifyShopifySessionToken, async (req, res) => {
   try {
     const { merchantId } = req.params;
@@ -206,8 +252,6 @@ router.put('/toggle/:merchantId', verifyShopifySessionToken, async (req, res) =>
       });
     }
     
-    // Since isEnabled was removed, we'll just return success
-    // In the future, this could be implemented differently
     res.json({
       message: 'Merchant status updated successfully',
       success: true
@@ -218,7 +262,6 @@ router.put('/toggle/:merchantId', verifyShopifySessionToken, async (req, res) =>
   }
 });
 
-// Toggle abandoned cart emails for merchant
 router.put('/toggle-abandoned-cart-emails/:merchantId', verifyShopifySessionToken, async (req, res) => {
   try {
     const { merchantId } = req.params;

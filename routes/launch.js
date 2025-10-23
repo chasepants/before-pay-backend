@@ -2,23 +2,19 @@ const express = require('express');
 const router = express.Router();
 const LaunchUser = require('../models/LaunchUser');
 
-// POST /api/launch/notify - Save launch notification
 router.post('/notify', async (req, res) => {
   try {
     const { firstName, lastName, email } = req.body;
     
-    // Basic validation - check for empty or whitespace-only strings
     if (!firstName || !firstName.trim() || !lastName || !lastName.trim() || !email || !email.trim()) {
       return res.status(400).json({ error: 'First name, last name, and email are required' });
     }
     
-    // Check if email already exists
     const existingUser = await LaunchUser.findOne({ email: email.trim() });
     if (existingUser) {
       return res.status(409).json({ error: 'Email already registered for launch notifications' });
     }
     
-    // Create new launch user with trimmed values
     const launchUser = new LaunchUser({
       firstName: firstName.trim(),
       lastName: lastName.trim(),

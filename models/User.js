@@ -6,7 +6,7 @@ const UserSchema = new mongoose.Schema({
   firstName: String,
   lastName: String,
   status: { type: String, default: 'pending' },
-  userType: { type: String, enum: ['guest', 'savings-account'], default: 'savings-account' },
+  userType: { type: String, enum: ['guest', 'savings-account', 'merchant'], default: 'savings-account' },
   unitApplicationId: String,
   unitCustomerId: String,
   unitAccountId: String,
@@ -14,6 +14,7 @@ const UserSchema = new mongoose.Schema({
   unitApplicationFormToken: String,
   unitApplicationFormExpiration: Date,
   unitApplicationFormUrl: String,
+  shopifyMerchantId: { type: mongoose.Schema.Types.ObjectId, ref: 'ShopifyMerchant', sparse: true },
 });
 
 module.exports = mongoose.model('User', UserSchema);
