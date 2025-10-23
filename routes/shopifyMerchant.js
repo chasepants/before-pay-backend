@@ -6,6 +6,7 @@ const SavingsGoal = require('../models/SavingsGoal');
 const User = require('../models/User');
 const { createUnitApplicationForm } = require('../services/unitMerchantService');
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
+const firebaseService = require('../services/firebaseService');
 
 router.get('/status/:shopId', verifyShopifySessionToken, async (req, res) => {
   try {
@@ -104,16 +105,47 @@ router.post('/register-with-credentials', verifyShopifySessionToken, async (req,
       await merchant.save();
     }
 
-    const user = new User({
-      email,
-      firstName,
-      lastName,
-      userType: 'merchant',
-      shopifyMerchantId: merchant._id,
-      status: 'pending'
-    });
-    
-    await user.save();
+    let firebaseUser;
+    try {
+      firebaseUser = await firebaseService.createUserWithEmailAndPassword(
+        email,
+        password,
+        firstName,
+        lastName
+      );
+    } catch (firebaseError) {
+      console.error('Firebase user creation failed:', firebaseError);
+      return res.status(400).json({ 
+        error: 'Failed to create user account', 
+        details: firebaseError.message 
+      });
+    }
+
+    let user;
+    try {
+      user = new User({
+        email,
+        firstName,
+        lastName,
+        userType: 'merchant',
+        shopifyMerchantId: merchant._id,
+        firebaseUid: firebaseUser.uid,
+        status: 'pending'
+      });
+      
+      await user.save();
+    } catch (mongoError) {
+      console.error('MongoDB user creation failed:', mongoError);
+      try {
+        await firebaseService.deleteUser(firebaseUser.uid);
+      } catch (cleanupError) {
+        console.error('Failed to cleanup Firebase user:', cleanupError);
+      }
+      return res.status(500).json({ 
+        error: 'Failed to create user record', 
+        details: mongoError.message 
+      });
+    }
     
     res.json({
       message: 'Merchant user created successfully',
