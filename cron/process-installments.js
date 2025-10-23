@@ -130,6 +130,8 @@ async function createOrder(goal) {
   const { session } = await shopify.auth.clientCredentials({shop: goal.product.shopDomain});
 
   const client = new shopify.clients.Graphql({ session, apiVersion: ApiVersion.July25});
+
+  // TODO: Add shipping address to the order
   const mutation = `#graphql
     mutation orderCreate($order: OrderCreateOrderInput!, $options: OrderCreateOptionsInput) {
       orderCreate(order: $order, options: $options) {
@@ -152,7 +154,7 @@ async function createOrder(goal) {
     variantId: `gid://shopify/ProductVariant/${item.variantId}`,
     quantity: item.quantity
   }));
-  
+
   const variables = {
     order: {
       lineItems: lineItems,
@@ -169,7 +171,7 @@ async function createOrder(goal) {
   const response = await client.request(mutation, { variables });
 
   console.log('Order creation response:', JSON.stringify(response, null, 2));
-  
+
   if (response.data?.orderCreate?.userErrors?.length > 0) {
     console.error('Order creation errors:', response.data.orderCreate.userErrors);
     throw new Error(`Order creation failed: ${response.data.orderCreate.userErrors.map(e => e.message).join(', ')}`);

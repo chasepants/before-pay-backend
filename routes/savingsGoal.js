@@ -308,6 +308,7 @@ router.post('/plaid/create-link-token', async (req, res) => {
 });
 
 router.post('/create-guest-goal', async (req, res) => {
+  /** TODO: Adding shipping address section */
   try {
     const { guestToken, emailToken, goalName, description, targetAmount, product, bankDetails } = req.body;
     
