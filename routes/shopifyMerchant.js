@@ -1,4 +1,5 @@
 const express = require('express');
+const axios = require('axios');
 const router = express.Router();
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const CheckoutCart = require('../models/CheckoutCart');
@@ -11,6 +12,7 @@ const firebaseService = require('../services/firebaseService');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = require('../services/unitService');
 const unitApi = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
+const jwt = require('jsonwebtoken');
 
 router.get('/status/:shopId', verifyShopifySessionToken, async (req, res) => {
   try {
@@ -431,6 +433,51 @@ router.get('/insights/:merchantId', verifyShopifySessionToken, async (req, res) 
   } catch (error) {
     console.error('Error fetching merchant insights:', error);
     res.status(500).json({ error: 'Failed to fetch merchant insights' });
+  }
+});
+
+router.post('/sso-login', verifyShopifySessionToken, async (req, res) => {
+  try {
+    const { shopDomain } = req.shopifySession;
+
+    const merchant = await ShopifyMerchant.findOne({ shopDomain });
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found for this shop' });
+    }
+
+    const user = await User.findOne({ shopifyMerchantId: merchant._id });
+    if (!user) {
+      return res.status(404).json({ error: 'No user account found for this merchant' });
+    }
+
+    const customToken = await firebaseService.createCustomToken(user.firebaseUid, {
+      userType: user.userType,
+      shopifyMerchantId: user.shopifyMerchantId
+    });
+
+    const firebaseResponse = await axios.post(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${process.env.FIREBASE_API_KEY}`, {
+      token: customToken,
+      returnSecureToken: true
+    });
+    
+    const { idToken } = firebaseResponse.data;
+    
+    console.log(`SSO login successful for merchant: ${merchant.shopDomain}`);
+    res.json({ 
+      success: true, 
+      idToken,
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        userType: user.userType,
+        shopifyMerchantId: user.shopifyMerchantId
+      }
+    });
+  } catch (error) {
+    console.error('SSO login error:', error);
+    res.status(500).json({ error: 'Failed to authenticate merchant' });
   }
 });
 

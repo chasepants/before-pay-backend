@@ -140,6 +140,10 @@ async function sendEmailVerification(email) {
   }
 }
 
+async function createCustomToken(uid, additionalClaims = {}) {
+  return await auth.createCustomToken(uid, additionalClaims);
+}
+
 module.exports = {
   createUserWithEmailAndPassword,
   verifyIdToken,
@@ -148,4 +152,5 @@ module.exports = {
   deleteUser,
   sendPasswordResetEmail,
   sendEmailVerification,
+  createCustomToken,
 };
