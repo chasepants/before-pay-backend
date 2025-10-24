@@ -6,7 +6,11 @@ const SavingsGoal = require('../models/SavingsGoal');
 const User = require('../models/User');
 const { createUnitApplicationForm } = require('../services/unitMerchantService');
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
+const { ensureAuthenticated } = require('../middleware/auth');
 const firebaseService = require('../services/firebaseService');
+const { Unit } = require('@unit-finance/unit-node-sdk');
+const unit = require('../services/unitService');
+const unitApi = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 
 router.get('/status/:shopId', verifyShopifySessionToken, async (req, res) => {
   try {
@@ -241,6 +245,48 @@ router.post('/webhook/unit-application-update', async (req, res) => {
   }
 });
 
+router.get('/', ensureAuthenticated, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (user.userType !== 'merchant') {
+      return res.status(403).json({ error: 'Access denied. Only merchants can access this data.' });
+    }
+    
+    if (!user.shopifyMerchantId) {
+      return res.status(404).json({ error: 'No merchant account found for this user.' });
+    }
+    
+    const merchant = await ShopifyMerchant.findById(user.shopifyMerchantId);
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    res.json({
+      success: true,
+      merchant: {
+        id: merchant._id,
+        shopifyShopId: merchant.shopifyShopId,
+        onboardingStatus: merchant.onboardingStatus,
+        unitApplicationId: merchant.unitApplicationId,
+        unitCustomerId: merchant.unitCustomerId,
+        unitAccountId: merchant.unitAccountId,
+        abandonedCartEmailsEnabled: merchant.abandonedCartEmailsEnabled,
+        createdAt: merchant.createdAt,
+        updatedAt: merchant.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching merchant:', error);
+    res.status(500).json({ error: 'Failed to fetch merchant data' });
+  }
+});
+
 router.get('/dashboard/:merchantId', verifyShopifySessionToken, async (req, res) => {
   try {
     const { merchantId } = req.params;
@@ -385,6 +431,37 @@ router.get('/insights/:merchantId', verifyShopifySessionToken, async (req, res) 
   } catch (error) {
     console.error('Error fetching merchant insights:', error);
     res.status(500).json({ error: 'Failed to fetch merchant insights' });
+  }
+});
+
+router.get('/customer-token', ensureAuthenticated, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user || user.userType !== 'merchant') {
+      return res.status(403).json({ error: 'Access denied. Only merchants can access this endpoint.' });
+    }
+    
+    if (!user.shopifyMerchantId) {
+      return res.status(404).json({ error: 'No merchant account found for this user.' });
+    }
+
+    const merchant = await ShopifyMerchant.findById(user.shopifyMerchantId);
+    if (!merchant || !merchant.unitCustomerId) {
+      return res.status(400).json({ error: 'No Unit application found for merchant' });
+    }
+
+    const response = await unitApi.customerToken.createToken(merchant.unitCustomerId, {
+      attributes: { scope: 'customers statements accounts authorizations transactions' },
+      type: "customerToken"
+    });
+    
+    console.log('Merchant customer token generated:', response.data.attributes.token);
+    res.json({ token: response.data.attributes.token });
+  } catch (error) {
+    console.error('Merchant customer token error:', error.message, error.stack);
+    res.status(500).json({ error: 'Failed to generate customer token: ' + error.message });
   }
 });
 
