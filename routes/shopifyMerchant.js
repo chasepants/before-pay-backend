@@ -64,6 +64,7 @@ router.post('/register', verifyShopifySessionToken, async (req, res) => {
     } else {
       merchant = new ShopifyMerchant({
         shopifyShopId,
+        shopDomain: `${shopifyShopId}.myshopify.com`,
         onboardingStatus: 'in_progress'
       });
       
@@ -275,6 +276,7 @@ router.get('/', ensureAuthenticated, async (req, res) => {
       merchant: {
         id: merchant._id,
         shopifyShopId: merchant.shopifyShopId,
+        shopDomain: merchant.shopDomain,
         onboardingStatus: merchant.onboardingStatus,
         unitApplicationId: merchant.unitApplicationId,
         unitCustomerId: merchant.unitCustomerId,

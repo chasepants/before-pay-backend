@@ -61,6 +61,7 @@ describe('Merchant Webhooks', () => {
     it('should create merchant application and update status', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'pending'
       });
       await merchant.save();
@@ -137,6 +138,7 @@ describe('Merchant Webhooks', () => {
     it('should update merchant status to in_progress when not completed', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'pending'
       });
       await merchant.save();
@@ -168,6 +170,7 @@ describe('Merchant Webhooks', () => {
     it('should not update status when merchant is already completed', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed'
       });
       await merchant.save();
@@ -201,6 +204,7 @@ describe('Merchant Webhooks', () => {
     it('should create customer and deposit account, then complete onboarding', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'in_progress'
       });
       await merchant.save();
@@ -234,6 +238,7 @@ describe('Merchant Webhooks', () => {
     it('should handle Unit account creation failure', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'in_progress'
       });
       await merchant.save();
@@ -270,6 +275,7 @@ describe('Merchant Webhooks', () => {
     it('should update account ID when account does not exist', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'in_progress'
       });
       await merchant.save();
@@ -302,6 +308,7 @@ describe('Merchant Webhooks', () => {
     it('should not update when account already exists', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed',
         unitAccountId: 'existing-account'
       });
@@ -336,6 +343,7 @@ describe('Merchant Webhooks', () => {
     it('should route merchant application.created events correctly', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'pending'
       });
       await merchant.save();
@@ -377,6 +385,7 @@ describe('Merchant Webhooks', () => {
     it('should route merchant customer.created events correctly', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'in_progress'
       });
       await merchant.save();

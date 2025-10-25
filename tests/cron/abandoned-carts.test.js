@@ -42,6 +42,7 @@ describe('Abandoned Carts Cron Job', () => {
       // Create merchants with emails enabled
       const merchant1 = new ShopifyMerchant({
         shopifyShopId: 'shop1',
+        shopDomain: 'shop1.myshopify.com',
         onboardingStatus: 'completed',
         abandonedCartEmailsEnabled: true
       });
@@ -49,6 +50,7 @@ describe('Abandoned Carts Cron Job', () => {
 
       const merchant2 = new ShopifyMerchant({
         shopifyShopId: 'shop2',
+        shopDomain: 'shop2.myshopify.com',
         onboardingStatus: 'completed',
         abandonedCartEmailsEnabled: true
       });
@@ -191,6 +193,7 @@ describe('Abandoned Carts Cron Job', () => {
       // Create merchant with emails enabled
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'error-shop',
+        shopDomain: 'error-shop.myshopify.com',
         onboardingStatus: 'completed',
         abandonedCartEmailsEnabled: true
       });
@@ -235,9 +238,10 @@ describe('Abandoned Carts Cron Job', () => {
       // Create merchants with emails enabled for all shops
       for (let i = 0; i < 55; i++) {
         const merchant = new ShopifyMerchant({
-          shopifyShopId: `shop${i}`,
-          onboardingStatus: 'completed',
-          abandonedCartEmailsEnabled: true
+        shopifyShopId: `shop${i}`,
+        shopDomain: `shop${i}.myshopify.com`,
+        onboardingStatus: 'completed',
+        abandonedCartEmailsEnabled: true
         });
         await merchant.save();
       }
@@ -319,6 +323,7 @@ describe('Abandoned Carts Cron Job', () => {
       // Create merchant with emails enabled
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed',
         abandonedCartEmailsEnabled: true
       });
@@ -361,6 +366,7 @@ describe('Abandoned Carts Cron Job', () => {
       // Create merchant with emails enabled
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed',
         abandonedCartEmailsEnabled: true
       });
@@ -404,6 +410,7 @@ describe('Abandoned Carts Cron Job', () => {
       // Create merchant with emails enabled
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed',
         abandonedCartEmailsEnabled: true
       });

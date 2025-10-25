@@ -87,7 +87,7 @@ router.get('/merchant/:shopDomain', ensureAuthenticated, async (req, res) => {
     }
     
     // Find all savings goals for this shop
-    const goals = await SavingsGoal.find({ shopDomain }).populate('userId', 'firstName lastName email');
+    const goals = await SavingsGoal.find({ 'product.shopDomain': shopDomain }).populate('userId', 'firstName lastName email');
     
     // Calculate status for each goal
     const goalsWithStatus = goals.map(goal => {

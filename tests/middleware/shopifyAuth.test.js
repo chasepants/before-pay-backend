@@ -169,7 +169,7 @@ describe('Shopify Auth Middleware', () => {
       expect(req.shopifySession).toEqual({
         id: 'test-session-id',
         shop_id: '123456789',
-        shop_domain: 'test-shop.myshopify.com',
+        shopDomain: 'test-shop.myshopify.com',
         is_online: false,
         state: 'active'
       });

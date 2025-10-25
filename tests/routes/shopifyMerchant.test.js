@@ -101,6 +101,7 @@ describe('Shopify Merchant Routes', () => {
     it('should return merchant status when merchant exists', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed',
         unitApplicationId: 'app-123',
         unitCustomerId: 'customer-456',
@@ -194,6 +195,7 @@ describe('Shopify Merchant Routes', () => {
     it('should return 409 when merchant already exists', async () => {
       const merchant = new ShopifyMerchant({
         shopifyShopId: 'existing-shop',
+        shopDomain: 'existing-shop.myshopify.com',
         onboardingStatus: 'pending'
       });
       await merchant.save();
@@ -219,6 +221,7 @@ describe('Shopify Merchant Routes', () => {
     beforeEach(async () => {
       merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'pending'
       });
       await merchant.save();
@@ -294,6 +297,7 @@ describe('Shopify Merchant Routes', () => {
     beforeEach(async () => {
       merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed',
         unitApplicationId: 'app-123',
         unitCustomerId: 'customer-456',
@@ -343,6 +347,7 @@ describe('Shopify Merchant Routes', () => {
     beforeEach(async () => {
       merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'in_progress',
         unitApplicationId: 'app-123'
       });
@@ -451,6 +456,7 @@ describe('Shopify Merchant Routes', () => {
     beforeEach(async () => {
       merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed'
       });
       await merchant.save();
@@ -470,6 +476,7 @@ describe('Shopify Merchant Routes', () => {
     it('should return 400 when merchant onboarding not completed', async () => {
       const incompleteMerchant = new ShopifyMerchant({
         shopifyShopId: 'incomplete-shop',
+        shopDomain: 'incomplete-shop.myshopify.com',
         onboardingStatus: 'in_progress'
       });
       await incompleteMerchant.save();
@@ -533,6 +540,7 @@ describe('Shopify Merchant Routes', () => {
     beforeEach(async () => {
       merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed'
       });
       await merchant.save();
@@ -569,6 +577,7 @@ describe('Shopify Merchant Routes', () => {
     it('should return 400 when merchant onboarding not completed', async () => {
       const pendingMerchant = new ShopifyMerchant({
         shopifyShopId: 'pending-shop',
+        shopDomain: 'pending-shop.myshopify.com',
         onboardingStatus: 'pending'
       });
       await pendingMerchant.save();
@@ -667,6 +676,7 @@ describe('Shopify Merchant Routes', () => {
       // Create a completed merchant for these tests
       merchant = new ShopifyMerchant({
         shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
         onboardingStatus: 'completed'
       });
       await merchant.save();
@@ -739,6 +749,7 @@ describe('Shopify Merchant Routes', () => {
     it('should return 400 when merchant onboarding not completed', async () => {
       const pendingMerchant = new ShopifyMerchant({
         shopifyShopId: 'pending-shop',
+        shopDomain: 'pending-shop.myshopify.com',
         onboardingStatus: 'pending'
       });
       await pendingMerchant.save();
