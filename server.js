@@ -310,10 +310,6 @@ app.get('/api/validate-email-token/:token', async (req, res) => {
       return res.status(404).json({ error: 'Checkout not found' });
     }
 
-    // Mark token as used
-    emailToken.used = true;
-    await emailToken.save();
-
     res.json({
       success: true,
       email: emailToken.email,

@@ -62,6 +62,53 @@ router.get('/', ensureAuthenticated, async (req, res) => {
   }
 });
 
+// Get savings goals for a specific merchant (shop)
+router.get('/merchant/:shopDomain', ensureAuthenticated, async (req, res) => {
+  try {
+    const { shopDomain } = req.params;
+    
+    // Verify the user is a merchant and has access to this shop
+    if (req.user.userType !== 'merchant') {
+      return res.status(403).json({ error: 'Access denied. Only merchants can access this endpoint.' });
+    }
+    
+    // Find the merchant record to verify shop access
+    const User = require('../models/User');
+    const ShopifyMerchant = require('../models/ShopifyMerchant');
+    
+    const user = await User.findById(req.user._id).populate('shopifyMerchantId');
+    if (!user || !user.shopifyMerchantId) {
+      return res.status(404).json({ error: 'Merchant account not found' });
+    }
+    
+    const merchant = await ShopifyMerchant.findById(user.shopifyMerchantId);
+    if (!merchant || merchant.shopDomain !== shopDomain) {
+      return res.status(403).json({ error: 'Access denied. You do not have access to this shop.' });
+    }
+    
+    // Find all savings goals for this shop
+    const goals = await SavingsGoal.find({ shopDomain }).populate('userId', 'firstName lastName email');
+    
+    // Calculate status for each goal
+    const goalsWithStatus = goals.map(goal => {
+      const isCompleted = goal.currentAmount >= goal.targetAmount;
+      const isOngoing = goal.currentAmount > 0 && goal.currentAmount < goal.targetAmount;
+      const isNotStarted = goal.currentAmount === 0;
+      
+      return {
+        ...goal.toObject(),
+        status: isCompleted ? 'completed' : (isOngoing ? 'ongoing' : 'not_started'),
+        progressPercentage: Math.round((goal.currentAmount / goal.targetAmount) * 100)
+      };
+    });
+    
+    res.json(goalsWithStatus);
+  } catch (error) {
+    console.error('Error fetching merchant savings goals:', error);
+    res.status(500).json({ error: 'Failed to fetch merchant savings goals' });
+  }
+});
+
 router.get('/search', requireSavingsAccountUser, async (req, res) => {
   const { q } = req.query;
   try {
@@ -423,6 +470,15 @@ router.post('/create-guest-goal', async (req, res) => {
     });
 
     await savingsGoal.save();
+
+    // Mark email token as used if it was provided
+    if (emailToken) {
+      const EmailToken = require('../models/EmailToken');
+      await EmailToken.updateOne(
+        { token: emailToken },
+        { used: true }
+      );
+    }
 
     const firstInstallmentDate = new Date();
     firstInstallmentDate.setDate(firstInstallmentDate.getDate() + 1);
