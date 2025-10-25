@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
 const router = express.Router();
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const CheckoutCart = require('../models/CheckoutCart');
@@ -12,7 +13,6 @@ const firebaseService = require('../services/firebaseService');
 const { Unit } = require('@unit-finance/unit-node-sdk');
 const unit = require('../services/unitService');
 const unitApi = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
-const jwt = require('jsonwebtoken');
 
 router.get('/status/:shopId', verifyShopifySessionToken, async (req, res) => {
   try {
@@ -450,22 +450,13 @@ router.post('/sso-login', verifyShopifySessionToken, async (req, res) => {
       return res.status(404).json({ error: 'No user account found for this merchant' });
     }
 
-    const customToken = await firebaseService.createCustomToken(user.firebaseUid, {
-      userType: user.userType,
-      shopifyMerchantId: user.shopifyMerchantId
-    });
-
-    const firebaseResponse = await axios.post(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${process.env.FIREBASE_API_KEY}`, {
-      token: customToken,
-      returnSecureToken: true
-    });
-    
-    const { idToken } = firebaseResponse.data;
+    // Generate JWT token for SSO (consistent with other auth flows)
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '14d' });
     
     console.log(`SSO login successful for merchant: ${merchant.shopDomain}`);
     res.json({ 
       success: true, 
-      idToken,
+      token, // Return JWT token instead of Firebase token
       user: {
         id: user._id,
         email: user.email,

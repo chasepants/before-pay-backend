@@ -41,7 +41,7 @@ router.get('/google/callback', passport.authenticate('google', { session: false,
       await user.save();
     }
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '14d' });
-    console.log('JWT generated:', token);
+    console.log('JWT generated for Google OAuth user:', token);
     const redirectUrl = user.status === 'approved' ? `${process.env.REACT_APP_URL}/home?token=${token}` : `${process.env.REACT_APP_URL}/application-signup?token=${token}`;
     res.redirect(redirectUrl);
   } else {
@@ -56,6 +56,7 @@ router.get('/current_user', async (req, res) => {
     console.log('No token provided in /current_user');
     return res.json(null);
   }
+  
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.userId);
@@ -227,11 +228,12 @@ router.post('/verify-firebase-token', async (req, res) => {
       }
     }
 
+    // Generate JWT token (consistent with other auth flows)
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '14d' });
 
     res.json({
       message: 'Authentication successful',
-      token: token,
+      token: token, // Return JWT token instead of Firebase ID token
       user: {
         id: user._id,
         email: user.email,

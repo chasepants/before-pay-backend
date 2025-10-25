@@ -859,13 +859,7 @@ describe('Shopify Merchant Routes', () => {
         email: 'merchant@test.com'
       });
 
-      // Mock axios for Firebase API call
-      axios.post.mockResolvedValue({
-        data: {
-          idToken: 'firebase-id-token-123',
-          refreshToken: 'refresh-token-123'
-        }
-      });
+      // No Firebase API calls needed for JWT-based SSO
     });
 
     it('should successfully login merchant with valid Shopify session', async () => {
@@ -875,7 +869,7 @@ describe('Shopify Merchant Routes', () => {
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.idToken).toBe('firebase-id-token-123');
+      expect(response.body.token).toBeDefined(); // JWT token instead of Firebase token
       expect(response.body.user).toEqual({
         id: user._id.toString(),
         email: user.email,
@@ -885,18 +879,7 @@ describe('Shopify Merchant Routes', () => {
         shopifyMerchantId: merchant._id.toString()
       });
 
-      // Verify Firebase service was called correctly
-      expect(mockFirebaseService.createCustomToken).toHaveBeenCalledWith('firebase-uid-123', {
-        userType: 'merchant',
-        shopifyMerchantId: merchant._id
-      });
-      expect(axios.post).toHaveBeenCalledWith(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${process.env.FIREBASE_API_KEY}`,
-        {
-          token: 'custom-token-123',
-          returnSecureToken: true
-        }
-      );
+      // JWT-based SSO - no Firebase verification needed
     });
 
     it('should return 404 when merchant not found', async () => {
@@ -922,8 +905,13 @@ describe('Shopify Merchant Routes', () => {
       expect(response.body.error).toBe('No user account found for this merchant');
     });
 
-    it('should handle Firebase custom token creation failure', async () => {
-      mockFirebaseService.createCustomToken.mockRejectedValue(new Error('Firebase error'));
+    it('should handle JWT generation failure', async () => {
+      // Mock jwt.sign to throw error
+      const jwt = require('jsonwebtoken');
+      const originalSign = jwt.sign;
+      jwt.sign = jest.fn().mockImplementation(() => {
+        throw new Error('JWT generation failed');
+      });
 
       const response = await request(app)
         .post('/api/shopify-merchant/sso-login')
@@ -931,30 +919,12 @@ describe('Shopify Merchant Routes', () => {
         .expect(500);
 
       expect(response.body.error).toBe('Failed to authenticate merchant');
+
+      // Restore original function
+      jwt.sign = originalSign;
     });
 
-    it('should handle Firebase ID token exchange failure', async () => {
-      axios.post.mockRejectedValue(new Error('Firebase API error'));
-
-      const response = await request(app)
-        .post('/api/shopify-merchant/sso-login')
-        .set('Authorization', `Bearer ${validToken}`)
-        .expect(500);
-
-      expect(response.body.error).toBe('Failed to authenticate merchant');
-    });
-
-    it('should handle Firebase ID token verification failure', async () => {
-      // Mock axios to fail when calling Firebase REST API
-      axios.post.mockRejectedValue(new Error('Firebase API error'));
-
-      const response = await request(app)
-        .post('/api/shopify-merchant/sso-login')
-        .set('Authorization', `Bearer ${validToken}`)
-        .expect(500);
-
-      expect(response.body.error).toBe('Failed to authenticate merchant');
-    });
+    // Firebase-related error tests removed since we're using JWT-based SSO
   });
 
   describe('GET /api/shopify-merchant/customer-token', () => {
