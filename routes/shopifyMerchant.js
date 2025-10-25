@@ -106,6 +106,7 @@ router.post('/register-with-credentials', verifyShopifySessionToken, async (req,
     if (!merchant) {
       merchant = new ShopifyMerchant({
         shopifyShopId,
+        shopDomain: req.shopifySession.shopDomain,
         onboardingStatus: 'in_progress'
       });
       await merchant.save();
