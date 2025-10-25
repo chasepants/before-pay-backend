@@ -49,7 +49,7 @@ const verifyShopifySessionToken = async (req, res, next) => {
     req.shopifySession = {
       id: payload.sid,
       shop_id: payload.sub,
-      shop_domain: payload.dest?.replace('https://', '') || payload.iss?.replace('https://', '').replace('/admin', ''),
+      shopDomain: payload.dest?.replace('https://', '') || payload.iss?.replace('https://', '').replace('/admin', ''),
       is_online: payload.is_online || false,
       state: payload.state || 'active'
     };

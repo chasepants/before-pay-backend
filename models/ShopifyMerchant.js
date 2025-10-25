@@ -7,6 +7,12 @@ const shopifyMerchantSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
+  shopDomain: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true
+  },
   unitApplicationId: {
     type: String,
     default: null
