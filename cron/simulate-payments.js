@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 require('dotenv').config();
-const { processScheduledPayments } = require('./process-installments');
+const { processScheduledInstallments } = require('./process-installments');
+const {processScheduledPayments} = require('./process-payments');
 
 async function connectDB() {
   try {
@@ -25,19 +26,24 @@ async function simulateDailyPayments(simulationDate) {
 
   console.log(`Simulating cron job for ${simulationDate}`);
   console.log('This simulates what the /api/cron/process-payments endpoint would do');
-  
+  console.log('Cron job started at:', new Date().toISOString());
+
   try {
-    console.log('Cron job started at:', new Date().toISOString());
-    await processScheduledPayments(simulationDate);
-    console.log('Cron job completed at:', new Date().toISOString());
-    console.log('Simulation completed successfully');
+    await processScheduledInstallments(simulationDate);
+    console.log('Installment simulation completed successfully');
   } catch (error) {
-    console.error('Cron simulation failed:', error);
-    process.exit(1);
-  } finally {
-    await mongoose.connection.close();
-    process.exit(0);
-  }
+    console.error('Cron simulation for installations failed:', error);
+  } 
+
+  try {
+    await processScheduledPayments(simulationDate);
+    console.log('Payments simulation completed successfully');
+  } catch (error) {
+    console.error('Cron simulation for payments failed:', error);
+  } 
+
+  console.log('Cron job completed at:', new Date().toISOString());
+
 }
 
 const simulationDate = process.argv[2];

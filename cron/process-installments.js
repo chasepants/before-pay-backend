@@ -23,7 +23,7 @@ function todayPartsUTC(date = null) {
   return { dayOfMonth, dayOfWeek };
 }
 
-async function processScheduledPayments(date = null) {
+async function processScheduledInstallments(date = null) {
   await connectDB();
   const { dayOfMonth, dayOfWeek } = todayPartsUTC(date);
 
@@ -86,4 +86,4 @@ async function processScheduledPayments(date = null) {
   }
 }
 
-module.exports = { processScheduledPayments };
+module.exports = { processScheduledInstallments };
