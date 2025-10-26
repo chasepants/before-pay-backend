@@ -3,13 +3,6 @@ const { Unit } = require('@unit-finance/unit-node-sdk');
 require('dotenv').config();
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const SavingsGoal = require('../models/SavingsGoal');
-const CheckoutCart = require('../models/CheckoutCart');
-const { nodeAdapterInitialized } = require('@shopify/shopify-api/adapters/node');
-const { shopifyApi, ApiVersion } = require('@shopify/shopify-api');
-
-if (!nodeAdapterInitialized) {
-  throw new Error('Failed to initialize Node.js adapter');
-}
 
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 
@@ -86,98 +79,11 @@ async function processScheduledPayments(date = null) {
       await goal.save();
 
       console.log(`Created payment for ${goal.goalName}`);
-
-      if (goal.currentAmount >= goal.targetAmount) {
-        console.log(`Goal ${goal.goalName} has reached its target amount`);
-        goal.isPaused = true;
-        goal.savingsAmount = 0;
-        await goal.save();
-
-        await createOrder(goal);
-      }
     } catch (err) {
       console.log(err);
       console.error('Cron payment error:', err?.message || err);
     }
   }
-}
-
-async function createOrder(goal) {
-  const checkoutId = goal?.product?.checkoutId;
-  if (!checkoutId) {
-    throw new Error('Missing product.checkoutId on goal');
-  }
-  
-  const cart = await CheckoutCart.findOne({checkoutId: checkoutId});
-
-  if (!cart) {
-    throw new Error('Checkout cart not found');
-  }
-
-  if (!cart.customerId) {
-    throw new Error(`CheckoutCart ${checkoutId} has no customerId - this might be a guest checkout`);
-  }
-
-  const shopify = shopifyApi({
-    apiKey: process.env.SHOPIFY_CLIENT_ID,
-    apiSecretKey: process.env.SHOPIFY_CLIENT_SECRET,
-    scopes: ['write_orders', 'read_customers'],
-    hostName: 'ngrok-tunnel-address',
-    apiVersion: ApiVersion.July25,
-    isTesting: true
-  });
-
-  const { session } = await shopify.auth.clientCredentials({shop: goal.product.shopDomain});
-
-  const client = new shopify.clients.Graphql({ session, apiVersion: ApiVersion.July25});
-
-  // TODO: Add shipping address to the order
-  const mutation = `#graphql
-    mutation orderCreate($order: OrderCreateOrderInput!, $options: OrderCreateOptionsInput) {
-      orderCreate(order: $order, options: $options) {
-        userErrors {
-          field
-          message
-        }
-        order {
-          id
-          displayFinancialStatus
-          customer {
-            id
-          }
-        }
-      }
-    }
-  `;
-
-  const lineItems = goal.product.lineItems.map(item => ({
-    variantId: `gid://shopify/ProductVariant/${item.variantId}`,
-    quantity: item.quantity
-  }));
-
-  const variables = {
-    order: {
-      lineItems: lineItems,
-      customer: {
-        toAssociate: {
-          id: `gid://shopify/Customer/${cart.customerId}`
-        }
-      },
-      financialStatus: "PAID"
-    }
-  }
-  console.log(JSON.stringify(variables, null, 2));
-  
-  const response = await client.request(mutation, { variables });
-
-  console.log('Order creation response:', JSON.stringify(response, null, 2));
-
-  if (response.data?.orderCreate?.userErrors?.length > 0) {
-    console.error('Order creation errors:', response.data.orderCreate.userErrors);
-    throw new Error(`Order creation failed: ${response.data.orderCreate.userErrors.map(e => e.message).join(', ')}`);
-  }
-  
-  console.log('Order created successfully:', response.data?.orderCreate?.order?.id);
 }
 
 module.exports = { processScheduledPayments };
