@@ -27,7 +27,7 @@ async function processScheduledInstallments(date = null) {
   await connectDB();
   const { dayOfMonth, dayOfWeek } = todayPartsUTC(date);
 
-  console.log(`Finding savings goals for ${dayOfMonth} ${dayOfWeek}`);
+  console.log(`Finding installments for ${dayOfMonth} ${dayOfWeek}`);
 
   const savingsGoals = await SavingsGoal.find({
     "product.type": "Shopify",
@@ -43,6 +43,11 @@ async function processScheduledInstallments(date = null) {
     try {
       if (goal.isPaused) {
         console.log(`Skipping paused savings goal: ${goal.goalName}`);
+        continue;
+      }
+
+      if (hasProcessInstallment(goal, date)) {
+        console.log(`Installment already processed for goal: ${goal._id}`);
         continue;
       }
 
@@ -74,8 +79,6 @@ async function processScheduledInstallments(date = null) {
         type: 'debit'
       });
 
-      goal.currentAmount += parseFloat(savingsAmount);
-
       await goal.save();
 
       console.log(`Created payment for ${goal.goalName}`);
@@ -86,4 +89,33 @@ async function processScheduledInstallments(date = null) {
   }
 }
 
-module.exports = { processScheduledInstallments };
+function hasProcessInstallment(goal, date) {
+  if (!goal.transfers || goal.transfers.length === 0) {
+    return false;
+  }
+
+  if (!date) {
+    console.warn('No date given to hasProcessedInstallment');
+    return false;
+  }
+
+  const checkDate = new Date(date);
+
+  const checkDateStart = new Date(Date.UTC(
+    checkDate.getUTCFullYear(),
+    checkDate.getUTCMonth(),
+    checkDate.getUTCDate()
+  ));
+  
+  const checkDateEnd = new Date(checkDateStart);
+  checkDateEnd.setUTCHours(23, 59, 59, 999);
+
+  const hasTransferToday = goal.transfers.some(transfer => {
+    const transferDate = new Date(transfer.date);
+    return transferDate >= checkDateStart && transferDate <= checkDateEnd && transfer.status !== "failed";
+  });
+
+  return hasTransferToday;
+}
+
+module.exports = { processScheduledInstallments, hasProcessInstallment };

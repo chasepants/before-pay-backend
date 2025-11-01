@@ -32,7 +32,7 @@ async function processScheduledPayments(date = null) {
   const savingsGoals = await SavingsGoal.find({
     $or: [
       { "schedule.dayOfMonth": dayOfMonth },
-      { "schedule.dayOfWeek": dayOfWeek }
+      { "schedule.dayOfWeek": dayOfWeek },
     ]
   }).sort({ _id: 1 });
 
@@ -42,6 +42,10 @@ async function processScheduledPayments(date = null) {
     try {
       if (goal.isPaused) {
         console.log(`Skipping paused savings goal: ${goal.goalName}`);
+        continue;
+      }
+
+      if (goal.product && goal.product.type == "Shopify") {
         continue;
       }
 

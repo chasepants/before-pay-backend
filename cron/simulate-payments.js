@@ -25,7 +25,6 @@ async function simulateDailyPayments(simulationDate) {
   await connectDB();
 
   console.log(`Simulating cron job for ${simulationDate}`);
-  console.log('This simulates what the /api/cron/process-payments endpoint would do');
   console.log('Cron job started at:', new Date().toISOString());
 
   try {
