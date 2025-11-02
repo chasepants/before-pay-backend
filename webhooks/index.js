@@ -309,7 +309,15 @@ async function handleTransactionCreated(eventData) {
     goal.transfers[idx].status = 'completed';
     goal.transfers[idx].transactionId = transactionId;
     const amt = goal.transfers[idx].amount;
-    if (goal.transfers[idx].type === 'debit') {
+    
+    // Special handling for Shopify refunds
+    if (tags.type === 'shopifyRefund' && goal.transfers[idx].type === 'credit') {
+      // For Shopify refunds, set currentAmount to 0 and ensure goal is paused
+      goal.currentAmount = 0;
+      goal.isPaused = true;
+      goal.savingsAmount = 0;
+      console.log(`Shopify refund completed for goal ${goal._id}: currentAmount set to 0, goal paused`);
+    } else if (goal.transfers[idx].type === 'debit') {
       goal.currentAmount += amt;
     } else if (goal.transfers[idx].type === 'credit') {
       goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - amt);

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const SavingsGoal = require('../models/SavingsGoal');
 const User = require('../models/User');
+const ShopifyMerchant = require('../models/ShopifyMerchant');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const mongoose = require('mongoose');
@@ -13,6 +14,7 @@ const { ensureAuthenticated, requireSavingsAccountUser } = require('../middlewar
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
 const emailService = require('../services/emailService');
 const PlaidService = require('../services/plaidService');
+const UnitService = require('../services/unitService');
 
 const verificationCodeSchema = new mongoose.Schema({
   email: { type: String, required: true, index: true },
@@ -265,14 +267,11 @@ router.post('/connect-plaid', async (req, res) => {
     }
 
     if (publicToken) {
-      console.log('publicToken!!!!!!!!!!!!!');
       try {
-        console.log('calling plaidService.exchangePublicToken!!!!!!!!!!!!!');
         const plaidService = new PlaidService();
         const exchangeResp = await plaidService.exchangePublicToken(publicToken);
-        console.log('exchangeResp!!!!!!!!!!!!!');
-        console.log(exchangeResp.data);
         guestSession.plaidToken = exchangeResp.data.access_token;
+
         if (accountId) guestSession.plaidAccountId = accountId;
       } catch (ex) {
         console.error('Plaid exchange failed:', ex.message);
@@ -741,6 +740,113 @@ router.post('/:id/save-product', requireSavingsAccountUser, async (req, res) => 
   } catch (error) {
     console.error('Save product error:', error);
     res.status(500).json({ error: 'Failed to save product' });
+  }
+});
+
+router.post('/:savingsGoalId/refund', ensureAuthenticated, async (req, res) => {
+  try {
+    const { savingsGoalId } = req.params;
+    
+    // Find the savings goal
+    const goal = await SavingsGoal.findById(savingsGoalId);
+    if (!goal) {
+      return res.status(404).json({ error: 'Savings goal not found' });
+    }
+    
+    // Verify user owns the goal
+    if (!goal.userId || goal.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Unauthorized. You do not own this savings goal.' });
+    }
+    
+    // Verify it's a Shopify order
+    if (!goal.product || goal.product.type !== 'Shopify') {
+      return res.status(400).json({ error: 'Refunds are only available for Shopify orders.' });
+    }
+    
+    // Check all transfers are completed or failed (no pending)
+    const hasPendingTransfers = goal.transfers && goal.transfers.some(
+      transfer => transfer.status === 'pending'
+    );
+    
+    if (hasPendingTransfers) {
+      return res.status(400).json({ 
+        error: 'Cannot refund while payments are processing. Please wait for all payments to complete or fail.' 
+      });
+    }
+    
+    // Verify there's something to refund
+    if (!goal.currentAmount || goal.currentAmount <= 0) {
+      return res.status(400).json({ error: 'No amount available for refund.' });
+    }
+    
+    // Verify goal has bank account linked
+    if (!goal.plaidToken) {
+      return res.status(400).json({ error: 'No bank account linked to this savings goal.' });
+    }
+    
+    // Find merchant account via shopDomain
+    if (!goal.product.shopDomain) {
+      return res.status(400).json({ error: 'Shop domain not found in savings goal.' });
+    }
+    
+    const merchant = await ShopifyMerchant.findOne({ shopDomain: goal.product.shopDomain });
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found for this shop.' });
+    }
+    
+    if (!merchant.unitAccountId) {
+      return res.status(400).json({ error: 'Merchant account not set up. Cannot process refund.' });
+    }
+    
+    // Create ACH credit payment from merchant account to user's bank
+    const unitService = new UnitService();
+    const refundAmount = goal.currentAmount;
+    
+    const ach = await unitService.createPayment({
+      type: 'achPayment',
+      attributes: {
+        amount: Math.round(refundAmount * 100), // Convert to cents
+        direction: 'Credit',
+        description: 'Refund for Shopify Order',
+        plaidProcessorToken: goal.plaidToken,
+        tags: { 
+          savingsGoalId: goal._id.toString(), 
+          userId: req.user._id.toString(), 
+          type: 'shopifyRefund' 
+        }
+      },
+      relationships: {
+        account: { data: { type: 'account', id: merchant.unitAccountId } }
+      }
+    });
+    
+    // Add refund transfer to goal
+    goal.transfers.push({
+      transferId: ach.data.id,
+      amount: refundAmount,
+      date: new Date(),
+      status: 'pending',
+      type: 'credit'
+    });
+    
+    // Pause the goal and clear savings amount
+    goal.isPaused = true;
+    goal.savingsAmount = 0;
+    
+    await goal.save();
+    
+    console.log(`Refund initiated for Shopify order ${savingsGoalId}: $${refundAmount}`);
+    
+    res.json({
+      success: true,
+      paymentId: ach.data.id,
+      amount: refundAmount,
+      message: 'Refund initiated successfully. The savings plan has been paused.'
+    });
+    
+  } catch (error) {
+    console.error('Refund error:', error.message, error.stack);
+    res.status(500).json({ error: 'Failed to process refund: ' + (error.message || 'Unknown error') });
   }
 });
 

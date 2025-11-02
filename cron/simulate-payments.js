@@ -43,10 +43,14 @@ async function simulateDailyPayments(simulationDate) {
 
   console.log('Cron job completed at:', new Date().toISOString());
 
+  return;
 }
 
 const simulationDate = process.argv[2];
-simulateDailyPayments(simulationDate).catch(error => {
+simulateDailyPayments(simulationDate).then(() => { 
+  console.log("Simulation complete")
+  process.exit(0);
+}).catch(error => {
   console.error('Simulation failed:', error);
   process.exit(1);
 });

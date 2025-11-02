@@ -351,5 +351,126 @@ describe('Transaction Webhooks', () => {
       const updatedGoal = await SavingsGoal.findById(goal._id);
       expect(updatedGoal.currentAmount).toBe(100);
     });
+
+    it('should handle Shopify refund transaction correctly', async () => {
+      const user = new User({
+        email: 'test@example.com',
+        unitCustomerId: 'customer-123',
+        unitAccountId: 'account-123'
+      });
+      await user.save();
+
+      const goal = new SavingsGoal({
+        userId: user._id,
+        goalName: 'Shopify Order',
+        targetAmount: 400,
+        currentAmount: 200,
+        savingsAmount: 100,
+        isPaused: false,
+        product: {
+          type: 'Shopify',
+          shopDomain: 'test-shop.myshopify.com'
+        },
+        transfers: [{
+          transferId: 'refund-payment-123',
+          amount: 200,
+          date: new Date(),
+          status: 'pending',
+          type: 'credit'
+        }]
+      });
+      await goal.save();
+
+      const webhookHandlers = require('../../webhooks/index');
+      const { handleTransactionCreated } = webhookHandlers;
+
+      const eventData = {
+        attributes: {
+          tags: {
+            type: 'shopifyRefund',
+            savingsGoalId: goal._id.toString(),
+            userId: user._id.toString()
+          }
+        },
+        relationships: {
+          payment: {
+            data: {
+              id: 'refund-payment-123'
+            }
+          },
+          transaction: {
+            data: {
+              id: 'transaction-123'
+            }
+          }
+        }
+      };
+
+      await handleTransactionCreated(eventData);
+
+      const updatedGoal = await SavingsGoal.findById(goal._id);
+      expect(updatedGoal.transfers[0].transactionId).toBe('transaction-123');
+      expect(updatedGoal.transfers[0].status).toBe('completed');
+      expect(updatedGoal.currentAmount).toBe(0);
+      expect(updatedGoal.isPaused).toBe(true);
+      expect(updatedGoal.savingsAmount).toBe(0);
+    });
+
+    it('should handle regular credit transfer (not Shopify refund)', async () => {
+      const user = new User({
+        email: 'test@example.com',
+        unitCustomerId: 'customer-123',
+        unitAccountId: 'account-123'
+      });
+      await user.save();
+
+      const goal = new SavingsGoal({
+        userId: user._id,
+        goalName: 'Test Goal',
+        targetAmount: 1000,
+        currentAmount: 200,
+        savingsAmount: 100,
+        transfers: [{
+          transferId: 'credit-payment-123',
+          amount: 50,
+          date: new Date(),
+          status: 'pending',
+          type: 'credit'
+        }]
+      });
+      await goal.save();
+
+      const webhookHandlers = require('../../webhooks/index');
+      const { handleTransactionCreated } = webhookHandlers;
+
+      const eventData = {
+        attributes: {
+          tags: {
+            type: 'otherTransfer'
+          }
+        },
+        relationships: {
+          payment: {
+            data: {
+              id: 'credit-payment-123'
+            }
+          },
+          transaction: {
+            data: {
+              id: 'transaction-123'
+            }
+          }
+        }
+      };
+
+      await handleTransactionCreated(eventData);
+
+      const updatedGoal = await SavingsGoal.findById(goal._id);
+      expect(updatedGoal.transfers[0].transactionId).toBe('transaction-123');
+      expect(updatedGoal.transfers[0].status).toBe('completed');
+      expect(updatedGoal.currentAmount).toBe(150); // 200 - 50
+      // Should not be paused for non-Shopify refunds (defaults to false)
+      expect(updatedGoal.isPaused).toBe(false);
+    });
   });
 });

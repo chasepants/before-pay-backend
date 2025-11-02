@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const savingsGoalRouter = require('../../routes/savingsGoal');
 const User = require('../../models/User');
 const SavingsGoal = require('../../models/SavingsGoal');
+const ShopifyMerchant = require('../../models/ShopifyMerchant');
 const EmailToken = require('../../models/EmailToken');
 const { generateImage, enhanceDescription } = require('../../services/xaiService');
 const { searchProducts } = require('../../services/webSearchService');
@@ -31,6 +32,14 @@ jest.mock('../../services/plaidService', () => {
   return jest.fn().mockImplementation(() => ({
     exchangePublicToken: mockExchangePublicToken,
     createProcessorToken: mockCreateProcessorToken
+  }));
+});
+
+let mockCreatePayment = jest.fn();
+
+jest.mock('../../services/unitService', () => {
+  return jest.fn().mockImplementation(() => ({
+    createPayment: mockCreatePayment
   }));
 });
 
@@ -74,6 +83,7 @@ describe('SavingsGoal Routes', () => {
   beforeEach(async () => {
     await User.deleteMany({});
     await SavingsGoal.deleteMany({});
+    await ShopifyMerchant.deleteMany({});
 
     // Reset all mocks before each test
     jest.clearAllMocks();
@@ -3125,6 +3135,278 @@ describe('SavingsGoal Routes', () => {
 
         // Restore original save method
         SavingsGoal.prototype.save = originalSave;
+      });
+    });
+
+    describe('POST /:savingsGoalId/refund', () => {
+      let shopifyGoal;
+      let merchant;
+
+      beforeEach(async () => {
+        await ShopifyMerchant.deleteMany({});
+        
+        merchant = new ShopifyMerchant({
+          shopifyShopId: 'test-shop-123',
+          shopDomain: 'test-shop.myshopify.com',
+          unitAccountId: 'merchant-account-123',
+          onboardingStatus: 'completed'
+        });
+        await merchant.save();
+
+        shopifyGoal = new SavingsGoal({
+          userId: testUser._id,
+          goalName: 'Shopify Order',
+          targetAmount: 400,
+          currentAmount: 200,
+          savingsAmount: 100,
+          plaidToken: 'plaid-token-123',
+          isPaused: false,
+          product: {
+            type: 'Shopify',
+            shopDomain: 'test-shop.myshopify.com',
+            checkoutId: 'checkout-123',
+            totalPrice: '400.00',
+            lineItems: [{
+              productId: 'prod-123',
+              variantId: 'var-123',
+              quantity: 1,
+              presentmentTitle: 'Test Product',
+              price: '400.00'
+            }]
+          },
+          transfers: [
+            {
+              transferId: 'payment-1',
+              amount: 100,
+              date: new Date(),
+              status: 'completed',
+              type: 'debit'
+            },
+            {
+              transferId: 'payment-2',
+              amount: 100,
+              date: new Date(),
+              status: 'completed',
+              type: 'debit'
+            }
+          ]
+        });
+        await shopifyGoal.save();
+
+        mockCreatePayment.mockResolvedValue({
+          data: {
+            id: 'refund-payment-123'
+          }
+        });
+      });
+
+      it('should successfully refund Shopify order', async () => {
+        const response = await request(app)
+          .post(`/api/savings-goal/${shopifyGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.paymentId).toBe('refund-payment-123');
+        expect(response.body.amount).toBe(200);
+        expect(response.body.message).toContain('Refund initiated successfully');
+
+        const updatedGoal = await SavingsGoal.findById(shopifyGoal._id);
+        expect(updatedGoal.isPaused).toBe(true);
+        expect(updatedGoal.savingsAmount).toBe(0);
+        expect(updatedGoal.transfers.length).toBe(3);
+        expect(updatedGoal.transfers[2].type).toBe('credit');
+        expect(updatedGoal.transfers[2].amount).toBe(200);
+        expect(updatedGoal.transfers[2].status).toBe('pending');
+        expect(updatedGoal.transfers[2].transferId).toBe('refund-payment-123');
+
+        expect(mockCreatePayment).toHaveBeenCalledWith({
+          type: 'achPayment',
+          attributes: {
+            amount: 20000,
+            direction: 'Credit',
+            description: 'Refund for Shopify Order',
+            plaidProcessorToken: 'plaid-token-123',
+            tags: {
+              savingsGoalId: shopifyGoal._id.toString(),
+              userId: testUser._id.toString(),
+              type: 'shopifyRefund'
+            }
+          },
+          relationships: {
+            account: { data: { type: 'account', id: 'merchant-account-123' } }
+          }
+        });
+      });
+
+      it('should return 404 when goal not found', async () => {
+        const response = await request(app)
+          .post('/api/savings-goal/507f1f77bcf86cd799439011/refund')
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(404);
+
+        expect(response.body.error).toBe('Savings goal not found');
+      });
+
+      it('should return 403 when user does not own goal', async () => {
+        const otherUser = new User({
+          email: 'other@example.com',
+          status: 'approved'
+        });
+        await otherUser.save();
+
+        const otherGoal = new SavingsGoal({
+          userId: otherUser._id,
+          goalName: 'Other User Goal',
+          targetAmount: 400,
+          currentAmount: 200,
+          product: { type: 'Shopify', shopDomain: 'test-shop.myshopify.com' },
+          plaidToken: 'plaid-token-123'
+        });
+        await otherGoal.save();
+
+        const response = await request(app)
+          .post(`/api/savings-goal/${otherGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(403);
+
+        expect(response.body.error).toContain('Unauthorized');
+      });
+
+      it('should return 400 when goal is not Shopify type', async () => {
+        const nonShopifyGoal = new SavingsGoal({
+          userId: testUser._id,
+          goalName: 'Regular Goal',
+          targetAmount: 1000,
+          currentAmount: 500,
+          product: { type: 'Google' },
+          plaidToken: 'plaid-token-123'
+        });
+        await nonShopifyGoal.save();
+
+        const response = await request(app)
+          .post(`/api/savings-goal/${nonShopifyGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(400);
+
+        expect(response.body.error).toContain('Refunds are only available for Shopify orders');
+      });
+
+      it('should return 400 when there are pending transfers', async () => {
+        shopifyGoal.transfers.push({
+          transferId: 'payment-pending',
+          amount: 100,
+          date: new Date(),
+          status: 'pending',
+          type: 'debit'
+        });
+        await shopifyGoal.save();
+
+        const response = await request(app)
+          .post(`/api/savings-goal/${shopifyGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(400);
+
+        expect(response.body.error).toContain('Cannot refund while payments are processing');
+      });
+
+      it('should return 400 when currentAmount is 0', async () => {
+        shopifyGoal.currentAmount = 0;
+        await shopifyGoal.save();
+
+        const response = await request(app)
+          .post(`/api/savings-goal/${shopifyGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(400);
+
+        expect(response.body.error).toContain('No amount available for refund');
+      });
+
+      it('should return 400 when no bank account linked', async () => {
+        shopifyGoal.plaidToken = null;
+        await shopifyGoal.save();
+
+        const response = await request(app)
+          .post(`/api/savings-goal/${shopifyGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(400);
+
+        expect(response.body.error).toContain('No bank account linked');
+      });
+
+      it('should return 404 when merchant not found', async () => {
+        // Store original shopDomain
+        const originalShopDomain = shopifyGoal.product.shopDomain;
+        
+        // Reload goal to ensure fresh state
+        shopifyGoal = await SavingsGoal.findById(shopifyGoal._id);
+        
+        // Change to a shopDomain that doesn't exist - need to markModified for Mixed types
+        shopifyGoal.product.shopDomain = 'nonexistent-shop-12345.myshopify.com';
+        shopifyGoal.markModified('product');
+        await shopifyGoal.save();
+
+        // Verify the goal was saved with the new shopDomain
+        const reloadedGoal = await SavingsGoal.findById(shopifyGoal._id);
+        expect(reloadedGoal.product.shopDomain).toBe('nonexistent-shop-12345.myshopify.com');
+
+        // Verify no merchant exists with that shopDomain
+        const foundMerchant = await ShopifyMerchant.findOne({ shopDomain: 'nonexistent-shop-12345.myshopify.com' });
+        expect(foundMerchant).toBeNull();
+
+        const response = await request(app)
+          .post(`/api/savings-goal/${shopifyGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(404);
+
+        expect(response.body.error).toContain('Merchant not found');
+        
+        // Restore shopDomain for subsequent tests
+        shopifyGoal = await SavingsGoal.findById(shopifyGoal._id);
+        shopifyGoal.product.shopDomain = originalShopDomain;
+        shopifyGoal.markModified('product');
+        await shopifyGoal.save();
+      });
+
+      it('should return 400 when merchant account not set up', async () => {
+        merchant.unitAccountId = null;
+        await merchant.save();
+
+        const response = await request(app)
+          .post(`/api/savings-goal/${shopifyGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(400);
+
+        expect(response.body.error).toContain('Merchant account not set up');
+      });
+
+      it('should handle Unit API errors', async () => {
+        mockCreatePayment.mockRejectedValue(new Error('Unit API error'));
+
+        const response = await request(app)
+          .post(`/api/savings-goal/${shopifyGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(500);
+
+        expect(response.body.error).toContain('Failed to process refund');
+      });
+
+      it('should allow refund with failed transfers', async () => {
+        shopifyGoal.transfers.push({
+          transferId: 'payment-failed',
+          amount: 100,
+          date: new Date(),
+          status: 'failed',
+          type: 'debit'
+        });
+        await shopifyGoal.save();
+
+        const response = await request(app)
+          .post(`/api/savings-goal/${shopifyGoal._id}/refund`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
       });
     });
   });
