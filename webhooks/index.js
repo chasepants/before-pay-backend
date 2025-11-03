@@ -147,15 +147,10 @@ async function handlePaymentClearing(eventData) {
   await goal.save();
   console.log(`payment.clearing → pending for transfer ${paymentId}`);
   if (goal.product && "Shopify" === goal.product?.type && goal.currentAmount >= goal.targetAmount) {
-      console.log(`Goal ${goal.goalName} has reached its target amount`);
-      goal.isPaused = true;
-      goal.savingsAmount = 0;
-      await goal.save();
-      try {
-        await createOrder(goal);
-      } catch (error) {
-        console.log(error)
-      }
+    console.log(`Goal ${goal.goalName} has reached its target amount`);
+    goal.isPaused = true;
+    goal.savingsAmount = 0;
+    await goal.save();
   }
 }
 
@@ -321,6 +316,16 @@ async function handleTransactionCreated(eventData) {
       goal.currentAmount += amt;
     } else if (goal.transfers[idx].type === 'credit') {
       goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - amt);
+    }
+    if (goal.product && "Shopify" === goal.product?.type && goal.currentAmount >= goal.targetAmount) {
+      console.log(`Goal ${goal.goalName} has reached its target amount`);
+      goal.isPaused = true;
+      goal.savingsAmount = 0;
+      try {
+        await createOrder(goal);
+      } catch (error) {
+        console.log(error)
+      }
     }
     await goal.save();
     console.log(`transaction.created → completed for transfer ${paymentId}, transactionId: ${transactionId}`);

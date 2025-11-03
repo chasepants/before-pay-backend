@@ -11,6 +11,15 @@ const transferSchema = new Schema({
   type: { type: String, required: true },
 });
 
+const LineItemSchema = new Schema({
+  productId: { type: String, required: true },
+  variantId: { type: String },
+  quantity: { type: Number, min: 1, default: 1 },
+  presentmentTitle: { type: String, required: true },
+  vendor: { type: String },
+  price: { type: mongoose.Types.Decimal128, required: true }
+}, { _id: false });
+
 const googleProductSchema = new Schema({
   type: { type: String, default: 'Google' },
   productLink: { type: String },
@@ -30,7 +39,6 @@ const googleProductSchema = new Schema({
   tag: { type: String },
   delivery: { type: String },
   description: { type: String },
-  // Shopify-specific identifiers for guest checkout purchases
   shopifyProductId: { type: String },
   shopifyVariantId: { type: String },
   handle: { type: String },
@@ -57,7 +65,6 @@ const scheduleSchema = new Schema({
   interval: String,
   dayOfMonth: Number,
   dayOfWeek: String,
-  // Additional fields to capture installment plan
   frequency: { type: String },
   installments: { type: Number },
   amountPerInstallment: { type: Number }

@@ -33,6 +33,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
   const { savingsGoalId, plaidAccessToken, plaidAccountId, amount, schedule } = req.body;
   console.log('Request body:', req.body);
 
+  // Need to make sure user in tokne is allowed ot update this savings goal
   if (!savingsGoalId || !plaidAccountId || !amount || !schedule) {
     return res.status(400).json({ error: 'savingsGoalId, plaidAccountId, amount, and schedule are required' });
   }
@@ -127,6 +128,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
 
 router.get('/transaction-history/:savingsGoalId', ensureAuthenticated, async (req, res) => {
   const { savingsGoalId } = req.params;
+  // TODO:  need to make sure user in token is allowed to see this information.
   try {
     const savingsGoal = await SavingsGoal.findById(savingsGoalId);
     if (!savingsGoal) return res.status(404).json({ error: 'Savings goal not found' });
