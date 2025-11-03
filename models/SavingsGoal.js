@@ -89,7 +89,7 @@ const savingsGoalSchema = new mongoose.Schema({
   currentAmount: { type: Number, default: 0 },
   savingsAmount: Number,
   category: { type: String, enum: ['product', 'trip', 'donation', 'education', 'home', 'other'], default: 'other' },
-  product: { type: Schema.Types.Mixed, required: false }, // Can be googleProductSchema or shopifyCartSchema
+  product: { type: Schema.Types.Mixed, required: false },
   schedule: scheduleSchema,
   bank: bankSchema,
   plaidToken: String,
