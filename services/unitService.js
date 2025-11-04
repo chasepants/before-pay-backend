@@ -2,6 +2,9 @@ const { Unit } = require('@unit-finance/unit-node-sdk');
 
 class UnitService {
   constructor() {
+    if (!process.env.UNIT_API_KEY) {
+      throw new Error('UNIT_API_KEY environment variable is required but not set');
+    }
     this.unit = new Unit(process.env.UNIT_API_KEY);
   }
 

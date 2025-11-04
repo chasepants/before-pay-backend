@@ -799,7 +799,15 @@ router.post('/:savingsGoalId/refund', ensureAuthenticated, async (req, res) => {
     }
     
     // Create ACH credit payment from merchant account to user's bank
-    const unitService = new UnitService();
+    let unitService;
+    try {
+      unitService = new UnitService();
+    } catch (error) {
+      console.error('Failed to initialize UnitService:', error.message);
+      return res.status(500).json({ 
+        error: 'Payment service configuration error. Please contact support.' 
+      });
+    }
     const refundAmount = goal.currentAmount;
     
     const ach = await unitService.createPayment({
