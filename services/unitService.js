@@ -5,7 +5,8 @@ class UnitService {
     if (!process.env.UNIT_API_KEY) {
       throw new Error('UNIT_API_KEY environment variable is required but not set');
     }
-    this.unit = new Unit(process.env.UNIT_API_KEY);
+    // Unit SDK requires both API key and base URL (matching pattern used throughout codebase)
+    this.unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
   }
 
   async createApplication(applicationData) {
