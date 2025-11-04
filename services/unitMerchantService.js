@@ -1,5 +1,6 @@
 const axios = require('axios');
 require('dotenv').config();
+const { v4: uuidv4 } = require('uuid');
 
 const UNIT_API_BASE = process.env.UNIT_API_BASE || 'https://api.s.unit.sh';
 const UNIT_API_TOKEN = process.env.UNIT_API_KEY;
@@ -51,6 +52,119 @@ class UnitMerchantService {
     }
   }
 
+  async createApplication(merchantData) {
+    try {
+      const {} = merchantData;
+
+      const applicationFormData = {
+        data: {
+          type: "businessApplication",
+          attributes: {
+            name: "SnowBoard Company",
+            address: {
+              street: "496 Broadway",
+              city: "Laguna Beach",
+              state: "CA",
+              postalCode: "92651",
+              country: "US"
+            },
+            phone: {
+              countryCode: "1",
+              number: "9497463950"
+            },
+            stateOfIncorporation: "CA",
+            ein: "123456789",
+            entityType: "Corporation",
+            ip: "127.0.0.2",
+            numberOfEmployees: "Between50And100",
+            yearOfIncorporation: "2014",
+            countriesOfOperation: [
+              "US"
+            ],
+            businessVertical: "TechnologyMediaOrTelecom",
+            website: "https://www.piedpiper.com",
+            contact: {
+              fullName: {
+                first: "Chase",
+                last: "Parks"
+              },
+              email: "chaseparks@example.com",
+              phone: {
+                countryCode: "1",
+                number: "5555555555"
+              }
+            },
+            officer: {
+              fullName: {
+                first: "Chase",
+                last: "Parks"
+              },
+              dateOfBirth: "2001-08-10",
+              title: "CEO",
+              ssn: "000000002",
+              email: "chaseparks@example.com",
+              phone: {
+                countryCode: "1",
+                number: "5555555555"
+              },
+              address: {
+                street: "496 Broadway",
+                city: "Laguna Beach",
+                state: "CA",
+                postalCode: "92651",
+                country: "US"
+              },
+              occupation: "ArchitectOrEngineer",
+              annualIncome: "Between50kAnd100k",
+              sourceOfIncome: "EmploymentOrPayrollIncome"
+            },
+            beneficialOwners: [
+              {
+                fullName: {
+                  first: "Chase",
+                  last: "Parks"
+                },
+                dateOfBirth: "2001-08-10",
+                ssn: "000000002",
+                email: "chaseparks@exampole.com",
+                percentage: 100,
+                phone: {
+                  countryCode: "1",
+                  number: "5555555555"
+                },
+                address: {
+                  street: "496 Broadway",
+                  city: "Laguna Beach",
+                  state: "CA",
+                  postalCode: "92651",
+                  country: "US"
+                },
+                occupation: "ArchitectOrEngineer",
+                annualIncome: "Between50kAnd100k",
+                sourceOfIncome: "EmploymentOrPayrollIncome"
+              }
+            ],
+            tags: {
+              merchantId: merchantData.merchantId,
+              shopifyShopId: merchantData.shopifyShopId
+            },
+            idempotencyKey:  uuidv4()
+          }
+        }
+      };
+
+      const response = await this.apiClient.post('/applications', applicationFormData);
+      
+      return {
+        id: response.data.data.id,
+        attributes: response.data.data.attributes,
+        links: response.data.data.links
+      };
+    } catch (error) {
+      console.error('Error creating Unit application form:', error.response?.data || error.message);
+      throw new Error('Failed to create Unit application form');
+    }
+  }
 
   async getApplicationForm(applicationFormId) {
     try {
@@ -111,5 +225,6 @@ module.exports = {
   UnitMerchantService,
   createUnitApplicationForm: (merchantData) => unitMerchantService.createApplicationForm(merchantData),
   getUnitApplicationForm: (applicationFormId) => unitMerchantService.getApplicationForm(applicationFormId),
-  createUnitDepositAccount: (merchantData) => unitMerchantService.createDepositAccount(merchantData)
+  createUnitDepositAccount: (merchantData) => unitMerchantService.createDepositAccount(merchantData),
+  createApplication: (merchantData) => unitMerchantService.createApplication(merchantData)
 };

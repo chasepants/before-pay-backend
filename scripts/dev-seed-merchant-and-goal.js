@@ -109,19 +109,19 @@ async function main() {
   // 2) Start a new Unit application form (fresh Unit application each run)
   let applicationForm;
   try {
-    applicationForm = await unitMerchantService.createUnitApplicationForm({
+    application = await unitMerchantService.createApplication({
       merchantId: merchant._id,
       shopifyShopId: merchant.shopifyShopId
     });
   } catch (e) {
-    console.error('Failed to create Unit application form:', e.message);
+    console.error('Failed to create Unit application:', e.message);
     throw e;
   }
 
   merchant.onboardingStatus = 'in_progress';
-  merchant.unitApplicationFormId = applicationForm.id;
-  merchant.unitApplicationFormUrl = applicationForm.links?.related?.href;
-  merchant.unitApplicationFormToken = applicationForm.attributes?.applicationFormToken?.token;
+  merchant.unitApplicationFormId = "1234";
+  merchant.unitApplicationFormUrl = "https://application-form.sh/view/ZXlKaGJHY2lPaUpTVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnlaWE52ZFhKalpVbGtJam9pTVRreU1Ua3pJaXdpZEhsd1pTSTZJbUZ3Y0d4cFkyRjBhVzl1Um05eWJTSXNJbVY0Y0NJNk1UYzJNakk0T1RNME9Dd2lZV04wYVc5dUlqcDdJbVJoZEdGRGIyeHNaV04wYVc5dUlqcDdmWDE5LkRuUjN5ZnJVNmpTaXlZT2MyVHJESUNyT1hscGpvMXJDN3d2VF9peEZKdFRUSEFFQnE4c0hHcnVCNFBwZ3FwWmd0cE9VVGJ2OEE5cDNSODQ5STFDSVFDZFhsRHV3VFhzdmtjMWVOMGx4OWRmRi04SEFwMV81UTJkc0pGX2VwOWtaTWRvY2VrWmdJX25rYzBFZFF0MHF2R2R5NlJERVdXQlFaRnhadVI0R0JxT2VJZHpjeVFGUjRUclZMWWVBcW9LN1V5aWNUWXFHZENFNjBkS3F4WnVzaXRLcFhhWnZUbFRYVGY3OXBCV3dnY3ExTUMwWUtRX1B1MEwyX1RhaVdMRk5kQVc2SG9uZGtrYmNwYlM3enVGdWhVU2JENzdxOXIwN25pLUctUkt6N0hzSE1QSDN0RWdZTzJMXzNKdDNpOTlJUnJyTUdtUEVwOFNNV2pZTE40LUl3UQ";
+  merchant.unitApplicationFormToken = "ZXlKaGJHY2lPaUpTVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnlaWE52ZFhKalpVbGtJam9pTVRreU1Ua3pJaXdpZEhsd1pTSTZJbUZ3Y0d4cFkyRjBhVzl1Um05eWJTSXNJbVY0Y0NJNk1UYzJNakk0T1RNME9Dd2lZV04wYVc5dUlqcDdJbVJoZEdGRGIyeHNaV04wYVc5dUlqcDdmWDE5LkRuUjN5ZnJVNmpTaXlZT2MyVHJESUNyT1hscGpvMXJDN3d2VF9peEZKdFRUSEFFQnE4c0hHcnVCNFBwZ3FwWmd0cE9VVGJ2OEE5cDNSODQ5STFDSVFDZFhsRHV3VFhzdmtjMWVOMGx4OWRmRi04SEFwMV81UTJkc0pGX2VwOWtaTWRvY2VrWmdJX25rYzBFZFF0MHF2R2R5NlJERVdXQlFaRnhadVI0R0JxT2VJZHpjeVFGUjRUclZMWWVBcW9LN1V5aWNUWXFHZENFNjBkS3F4WnVzaXRLcFhhWnZUbFRYVGY3OXBCV3dnY3ExTUMwWUtRX1B1MEwyX1RhaVdMRk5kQVc2SG9uZGtrYmNwYlM3enVGdWhVU2JENzdxOXIwN25pLUctUkt6N0hzSE1QSDN0RWdZTzJMXzNKdDNpOTlJUnJyTUdtUEVwOFNNV2pZTE40LUl3UQ";
   await merchant.save();
   console.log('Unit application form created:', merchant.unitApplicationFormUrl);
 
@@ -236,7 +236,7 @@ async function main() {
       checkoutId,
       shopDomain,
       totalPrice,
-      customerId: uuidv4(),
+      customerId: 7736055464033,
       lineItems: [
         {
           productId,
