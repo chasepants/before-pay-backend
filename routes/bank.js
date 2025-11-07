@@ -29,6 +29,134 @@ router.post('/plaid-link-token', ensureAuthenticated, async (req, res) => {
   }
 });
 
+// Plaid routes for guest users
+const GuestSession = require('../models/GuestSession');
+
+/**
+ * Connect Plaid account for guest users
+ * POST /api/bank/plaid/connect
+ */
+router.post('/plaid/connect', async (req, res) => {
+  try {
+    const { guestToken, emailToken, publicToken, accountId } = req.body;
+    
+    if (!guestToken && !emailToken) {
+      return res.status(400).json({ error: 'Either guest token or email token is required' });
+    }
+
+    let guestSession;
+
+    const EmailToken = require('../models/EmailToken');
+    const emailTokenDoc = await EmailToken.findOne({ 
+      token: emailToken, 
+      expiresAt: { $gt: new Date() }
+    });
+    
+    if (!emailTokenDoc) {
+      return res.status(401).json({ error: 'Invalid or expired email token' });
+    }
+
+    guestSession = await GuestSession.findOne({ email: emailTokenDoc.email });
+    if (!guestSession) {
+      guestSession = new GuestSession({
+        email: emailTokenDoc.email,
+        guestToken: require('crypto').randomBytes(32).toString('hex'),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+      });
+      await guestSession.save();
+    }
+
+    if (publicToken) {
+      try {
+        const plaidService = new PlaidService();
+        const exchangeResp = await plaidService.exchangePublicToken(publicToken);
+        guestSession.plaidToken = exchangeResp.data.access_token;
+
+        if (accountId) guestSession.plaidAccountId = accountId;
+      } catch (ex) {
+        console.error('Plaid exchange failed:', ex.message);
+        return res.status(500).json({ error: 'Failed to exchange Plaid token' });
+      }
+    } else {
+      return res.status(400).json({ error: 'Plaid token is required' });
+    }
+    await guestSession.save();
+    
+    res.status(200).json({
+      success: true,
+      accessToken: guestSession.plaidToken,
+      message: 'Plaid account connected successfully'
+    });
+  } catch (error) {
+    console.error('Error connecting Plaid:', error);
+    res.status(500).json({ error: 'Failed to connect Plaid account' });
+  }
+});
+
+/**
+ * Create Plaid link token for guest users
+ * POST /api/bank/plaid/link-token
+ */
+router.post('/plaid/link-token', async (req, res) => {
+  try {
+    const { guestToken, emailToken } = req.body;
+    
+    if (!guestToken && !emailToken) {
+      return res.status(400).json({ error: 'Either guest token or email token is required' });
+    }
+
+    let userId;
+    let clientName = 'StashPay';
+
+    if (guestToken) {
+      const guestSession = await GuestSession.findOne({ guestToken });
+      if (!guestSession) {
+        return res.status(401).json({ error: 'Invalid or expired guest session' });
+      }
+      if (new Date() > guestSession.expiresAt) {
+        await GuestSession.deleteOne({ _id: guestSession._id });
+        return res.status(401).json({ error: 'Guest session expired' });
+      }
+      userId = guestSession._id;
+      clientName = 'StashPay Guest Checkout';
+    } else if (emailToken) {
+      const EmailToken = require('../models/EmailToken');
+      const emailTokenDoc = await EmailToken.findOne({ 
+        token: emailToken,
+        expiresAt: { $gt: new Date() }
+      });
+      
+      if (!emailTokenDoc) {
+        return res.status(401).json({ error: 'Invalid or expired email token' });
+      }
+      
+      userId = emailToken;
+      clientName = 'StashPay Savings Plan';
+    }
+
+    try {
+      const plaidService = new PlaidService();
+      const linkTokenResponse = await plaidService.createLinkToken(userId, clientName);
+      
+      return res.status(200).json({
+        success: true,
+        linkToken: linkTokenResponse.data.link_token,
+        expiration: linkTokenResponse.data.expiration
+      });
+    } catch (e) {
+      console.error('Plaid link token creation error:', e.message);
+      console.error('Plaid error details:', e.response?.data || e);
+      return res.status(500).json({ 
+        error: `Failed to create Plaid link token: ${e.message}`,
+        details: e.response?.data || 'No additional details available'
+      });
+    }
+  } catch (e) {
+    console.error('Plaid link token error:', e.message);
+    return res.status(500).json({ error: 'Failed to create Plaid link token' });
+  }
+});
+
 router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
   const { savingsGoalId, plaidAccessToken, plaidAccountId, amount, schedule } = req.body;
   console.log('Request body:', req.body);

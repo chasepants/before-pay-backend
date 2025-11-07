@@ -65,6 +65,9 @@ const webSearchService = require('../../services/webSearchService');
 const app = express();
 app.use(express.json());
 app.use('/api/savings-goal', savingsGoalRouter);
+app.use('/api/products', require('../../routes/products'));
+app.use('/api/auth', require('../../routes/auth'));
+app.use('/api/bank', require('../../routes/bank'));
 
 describe('SavingsGoal Routes', () => {
   let mongoServer;
@@ -1559,143 +1562,7 @@ describe('SavingsGoal Routes', () => {
     });
   });
 
-  describe('POST /:id/ai-insights', () => {
-    beforeEach(() => {
-      // Reset all mocks before each test
-      jest.clearAllMocks();
-    });
-
-    it('should return 401 when no token is provided', async () => {
-      const response = await request(app)
-        .post('/api/savings-goal/507f1f77bcf86cd799439011/ai-insights')
-        .send({ type: 'description-enhancement', prompt: 'Test prompt' })
-        .expect(401);
-
-      expect(response.body.error).toBe('Unauthorized: No token provided');
-    });
-
-    it('should return 401 when invalid token is provided', async () => {
-      const response = await request(app)
-        .post('/api/savings-goal/507f1f77bcf86cd799439011/ai-insights')
-        .set('Authorization', 'Bearer invalid-token')
-        .send({ type: 'description-enhancement', prompt: 'Test prompt' })
-        .expect(401);
-
-      expect(response.body.error).toBe('Unauthorized: Invalid token');
-    });
-
-    it('should return 401 when user is not found', async () => {
-      const invalidToken = jwt.sign(
-        { userId: new mongoose.Types.ObjectId().toString() },
-        process.env.JWT_SECRET || 'test-secret',
-        { expiresIn: '1h' }
-      );
-
-      const response = await request(app)
-        .post('/api/savings-goal/507f1f77bcf86cd799439011/ai-insights')
-        .set('Authorization', `Bearer ${invalidToken}`)
-        .send({ type: 'description-enhancement', prompt: 'Test prompt' })
-        .expect(401);
-
-      expect(response.body.error).toBe('Unauthorized: User not found');
-    });
-
-    it('should return 404 when savings goal does not exist', async () => {
-      const response = await request(app)
-        .post('/api/savings-goal/507f1f77bcf86cd799439011/ai-insights')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ type: 'description-enhancement', prompt: 'Test prompt' })
-        .expect(404);
-
-      expect(response.body.error).toBe('Savings goal not found');
-    });
-
-    it('should return 404 when savings goal exists but belongs to different user', async () => {
-      // Create another user
-      const otherUser = new User({
-        email: 'other@example.com',
-        firstName: 'Other',
-        lastName: 'User'
-      });
-      await otherUser.save();
-
-      // Create a savings goal for the other user
-      const otherGoal = new SavingsGoal({
-        userId: otherUser._id,
-        goalName: 'Other Goal',
-        targetAmount: 1000,
-        currentAmount: 0
-      });
-      await otherGoal.save();
-
-      const response = await request(app)
-        .post(`/api/savings-goal/${otherGoal._id}/ai-insights`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ type: 'description-enhancement', prompt: 'Test prompt' })
-        .expect(404);
-
-      expect(response.body.error).toBe('Savings goal not found');
-
-      // Clean up
-      await User.deleteOne({ _id: otherUser._id });
-      await SavingsGoal.deleteOne({ _id: otherGoal._id });
-    });
-
-    it('should successfully enhance description when valid prompt is provided', async () => {
-      // Mock the enhanceDescription function
-      xaiService.enhanceDescription.mockResolvedValue('Enhanced description text');
-
-      // Create a test savings goal
-      const testGoal = new SavingsGoal({
-        userId: testUser._id,
-        goalName: 'Test Goal for AI',
-        targetAmount: 1000,
-        currentAmount: 0,
-        description: 'Original description'
-      });
-      await testGoal.save();
-
-      const response = await request(app)
-        .post(`/api/savings-goal/${testGoal._id}/ai-insights`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ 
-          type: 'description-enhancement', 
-          prompt: 'Enhance this description' 
-        })
-        .expect(200);
-
-      expect(response.body.enhancedDescription).toBe('Enhanced description text');
-      expect(response.body.goal.description).toBe('Enhanced description text');
-      expect(xaiService.enhanceDescription).toHaveBeenCalledWith('Enhance this description');
-    });
-
-    it('should return 500 when xAI service fails', async () => {
-      // Mock the enhanceDescription function to throw an error
-      xaiService.enhanceDescription.mockRejectedValue(new Error('xAI service unavailable'));
-
-      // Create a test savings goal
-      const testGoal = new SavingsGoal({
-        userId: testUser._id,
-        goalName: 'Test Goal for AI',
-        targetAmount: 1000,
-        currentAmount: 0,
-        description: 'Original description'
-      });
-      await testGoal.save();
-
-      const response = await request(app)
-        .post(`/api/savings-goal/${testGoal._id}/ai-insights`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ 
-          type: 'description-enhancement', 
-          prompt: 'Enhance this description' 
-        })
-        .expect(500);
-
-      expect(response.body.error).toBe('Failed to generate AI insights');
-      expect(xaiService.enhanceDescription).toHaveBeenCalledWith('Enhance this description');
-    });
-  });
+  // NOTE: POST /:id/ai-insights route was removed - tests removed
 
   describe('POST /:id/web-search', () => {
     beforeEach(() => {
@@ -2211,38 +2078,7 @@ describe('SavingsGoal Routes', () => {
       expect(response.body.error).toBe('Prompt is required');
     });
 
-    it('should return 400 when type is missing for ai-insights', async () => {
-      const response = await request(app)
-        .post(`/api/savings-goal/${testGoal._id}/ai-insights`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ prompt: 'test prompt' })
-        .expect(400);
-
-      expect(response.body.error).toBe('Type and prompt are required');
-    });
-
-    it('should return 400 when prompt is missing for ai-insights', async () => {
-      const response = await request(app)
-        .post(`/api/savings-goal/${testGoal._id}/ai-insights`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ type: 'description-enhancement' })
-        .expect(400);
-
-      expect(response.body.error).toBe('Type and prompt are required');
-    });
-
-    it('should return 400 when type is invalid for ai-insights', async () => {
-      const response = await request(app)
-        .post(`/api/savings-goal/${testGoal._id}/ai-insights`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ 
-          type: 'invalid-type', 
-          prompt: 'test prompt' 
-        })
-        .expect(400);
-
-      expect(response.body.error).toBe('Invalid insight type');
-    });
+    // NOTE: ai-insights route tests removed - route was deleted
 
     it('should return 400 when search query is empty for web-search', async () => {
       // Create a product-type goal with product data for web search
@@ -2307,7 +2143,7 @@ describe('SavingsGoal Routes', () => {
     });
   });
 
-  describe('GET /search', () => {
+  describe('GET /products/search', () => {
     let axios;
 
     beforeEach(() => {
@@ -2319,7 +2155,7 @@ describe('SavingsGoal Routes', () => {
 
     it('should return 401 when no token is provided', async () => {
       const response = await request(app)
-        .get('/api/savings-goal/search?q=test')
+        .get('/api/products/search?q=test')
         .expect(401);
 
       expect(response.body.error).toBe('Unauthorized: No token provided');
@@ -2327,7 +2163,7 @@ describe('SavingsGoal Routes', () => {
 
     it('should return 401 when invalid token is provided', async () => {
       const response = await request(app)
-        .get('/api/savings-goal/search?q=test')
+        .get('/api/products/search?q=test')
         .set('Authorization', 'Bearer invalid-token')
         .expect(401);
 
@@ -2344,7 +2180,7 @@ describe('SavingsGoal Routes', () => {
       );
 
       const response = await request(app)
-        .get('/api/savings-goal/search?q=test')
+        .get('/api/products/search?q=test')
         .set('Authorization', `Bearer ${invalidToken}`)
         .expect(401);
 
@@ -2368,7 +2204,7 @@ describe('SavingsGoal Routes', () => {
       });
 
       const response = await request(app)
-        .get('/api/savings-goal/search?q=test')
+        .get('/api/products/search?q=test')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
       expect(response.body).toHaveLength(1);
@@ -2389,7 +2225,7 @@ describe('SavingsGoal Routes', () => {
       axios.get.mockRejectedValue(new Error('Search failed'));
 
       const response = await request(app)
-        .get('/api/savings-goal/search?q=test')
+        .get('/api/products/search?q=test')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(500);
 
@@ -2419,7 +2255,7 @@ describe('SavingsGoal Routes', () => {
       });
 
       const response = await request(app)
-        .get('/api/savings-goal/search?q=test')
+        .get('/api/products/search?q=test')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
@@ -2828,12 +2664,12 @@ describe('SavingsGoal Routes', () => {
       jest.clearAllMocks();
     });
 
-    describe('POST /send-verification', () => {
+    describe('POST /auth/verification/send', () => {
       it('should send verification code successfully', async () => {
         emailService.sendVerificationCode.mockResolvedValue({ success: true });
 
         const response = await request(app)
-          .post('/api/savings-goal/send-verification')
+          .post('/api/auth/verification/send')
           .send({ email: 'test@example.com' })
           .expect(200);
 
@@ -2844,7 +2680,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should return 400 if email is missing', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/send-verification')
+          .post('/api/auth/verification/send')
           .send({})
           .expect(400);
 
@@ -2855,7 +2691,7 @@ describe('SavingsGoal Routes', () => {
         emailService.sendVerificationCode.mockResolvedValue({ success: true });
 
         const response = await request(app)
-          .post('/api/savings-goal/send-verification')
+          .post('/api/auth/verification/send')
           .send({ email: 'invalid-email' })
           .expect(200);
 
@@ -2870,7 +2706,7 @@ describe('SavingsGoal Routes', () => {
         });
 
         const response = await request(app)
-          .post('/api/savings-goal/send-verification')
+          .post('/api/auth/verification/send')
           .send({ email: 'test@example.com' })
           .expect(200);
 
@@ -2883,13 +2719,13 @@ describe('SavingsGoal Routes', () => {
 
         // Send first verification
         await request(app)
-          .post('/api/savings-goal/send-verification')
+          .post('/api/auth/verification/send')
           .send({ email: 'test@example.com' })
           .expect(200);
 
         // Send second verification
         const response = await request(app)
-          .post('/api/savings-goal/send-verification')
+          .post('/api/auth/verification/send')
           .send({ email: 'test@example.com' })
           .expect(200);
 
@@ -2898,13 +2734,13 @@ describe('SavingsGoal Routes', () => {
       });
     });
 
-    describe('POST /verify-code', () => {
+    describe('POST /auth/verification/verify', () => {
       beforeEach(async () => {
         // Clean up any existing verification codes
-        const VerificationCode = mongoose.model('VerificationCode');
+        const VerificationCode = require('../../models/VerificationCode');
         await VerificationCode.deleteMany({});
         
-        // Create a verification code for testing using the existing model
+        // Create a verification code for testing
         await new VerificationCode({
           email: 'test@example.com',
           code: '123456',
@@ -2914,7 +2750,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should verify code successfully', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/verify-code')
+          .post('/api/auth/verification/verify')
           .send({ 
             email: 'test@example.com', 
             verificationCode: '123456' 
@@ -2927,7 +2763,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should return 400 if email is missing', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/verify-code')
+          .post('/api/auth/verification/verify')
           .send({ verificationCode: '123456' })
           .expect(400);
 
@@ -2936,7 +2772,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should return 400 if code is missing', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/verify-code')
+          .post('/api/auth/verification/verify')
           .send({ email: 'test@example.com' })
           .expect(400);
 
@@ -2945,7 +2781,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should return 400 if code is invalid', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/verify-code')
+          .post('/api/auth/verification/verify')
           .send({ 
             email: 'test@example.com', 
             verificationCode: 'wrong-code' 
@@ -2965,7 +2801,7 @@ describe('SavingsGoal Routes', () => {
         }).save();
 
         const response = await request(app)
-          .post('/api/savings-goal/verify-code')
+          .post('/api/auth/verification/verify')
           .send({ 
             email: 'expired@example.com', 
             verificationCode: '654321' 
@@ -2977,10 +2813,10 @@ describe('SavingsGoal Routes', () => {
       });
     });
 
-    describe('POST /connect-plaid', () => {
+    describe('POST /bank/plaid/connect', () => {
       beforeEach(async () => {
         // Clean up any existing data
-        const GuestSession = mongoose.model('GuestSession');
+        const GuestSession = require('../../models/GuestSession');
         await GuestSession.deleteMany({});
         await EmailToken.deleteMany({});
         
@@ -3000,7 +2836,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should connect Plaid account successfully', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/connect-plaid')
+          .post('/api/bank/plaid/connect')
           .send({ 
             emailToken: 'test-email-token',
             publicToken: 'test-plaid-token'
@@ -3013,7 +2849,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should return 400 if emailToken is missing', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/connect-plaid')
+          .post('/api/bank/plaid/connect')
           .send({ publicToken: 'test-plaid-token' })
           .expect(400);
 
@@ -3022,7 +2858,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should return 400 if publicToken is missing', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/connect-plaid')
+          .post('/api/bank/plaid/connect')
           .send({ emailToken: 'test-email-token' })
           .expect(400);
 
@@ -3031,7 +2867,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should return 401 if email token is invalid', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/connect-plaid')
+          .post('/api/bank/plaid/connect')
           .send({ 
             emailToken: 'invalid-token',
             publicToken: 'test-plaid-token'
@@ -3051,7 +2887,7 @@ describe('SavingsGoal Routes', () => {
         }).save();
 
         const response = await request(app)
-          .post('/api/savings-goal/connect-plaid')
+          .post('/api/bank/plaid/connect')
           .send({ 
             emailToken: 'expired-token',
             publicToken: 'test-plaid-token'
@@ -3062,17 +2898,16 @@ describe('SavingsGoal Routes', () => {
       });
     });
 
-    describe('POST /create-guest-goal', () => {
+    describe('POST /guest', () => {
       beforeEach(async () => {
-        const GuestSession = mongoose.model('GuestSession');
-        const User = mongoose.model('User');
+        const GuestSession = require('../../models/GuestSession');
         const EmailToken = require('../../models/EmailToken');
         await GuestSession.deleteMany({});
         await User.deleteMany({ email: 'test@example.com' });
         await EmailToken.deleteMany({});
         await CheckoutCart.deleteMany({});
         
-        // Create a guest session with Plaid connected for testing using the existing model
+        // Create a guest session with Plaid connected for testing
         await new GuestSession({
           email: 'test@example.com',
           guestToken: 'test-guest-token',
@@ -3133,7 +2968,7 @@ describe('SavingsGoal Routes', () => {
         };
 
         const response = await request(app)
-          .post('/api/savings-goal/create-guest-goal')
+          .post('/api/savings-goal/guest')
           .send(goalData)
           .expect(201);
 
@@ -3164,7 +2999,7 @@ describe('SavingsGoal Routes', () => {
 
       it('should return 400 if required fields are missing', async () => {
         const response = await request(app)
-          .post('/api/savings-goal/create-guest-goal')
+          .post('/api/savings-goal/guest')
           .send({ guestToken: 'test-guest-token' })
           .expect(400);
 
@@ -3180,7 +3015,7 @@ describe('SavingsGoal Routes', () => {
         };
 
         const response = await request(app)
-          .post('/api/savings-goal/create-guest-goal')
+          .post('/api/savings-goal/guest')
           .send(goalData)
           .expect(401);
 
@@ -3188,9 +3023,8 @@ describe('SavingsGoal Routes', () => {
       });
 
       it('should return 401 if no Plaid token is linked', async () => {
-        // Create guest session without Plaid token using the existing model
-        const GuestSession = mongoose.model('GuestSession');
-        const User = mongoose.model('User');
+        // Create guest session without Plaid token
+        const GuestSession = require('../../models/GuestSession');
         await new GuestSession({
           email: 'no-plaid@example.com',
           guestToken: 'no-plaid-token',
@@ -3212,7 +3046,7 @@ describe('SavingsGoal Routes', () => {
         };
 
         const response = await request(app)
-          .post('/api/savings-goal/create-guest-goal')
+          .post('/api/savings-goal/guest')
           .send(goalData)
           .expect(401);
 
@@ -3220,30 +3054,32 @@ describe('SavingsGoal Routes', () => {
       });
 
       it('should handle database errors when creating goal', async () => {
-        // Mock SavingsGoal.save to throw an error
-        const originalSave = SavingsGoal.prototype.save;
-        SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
-
+        // Use the guest session already created in beforeEach
+        // Mock SavingsGoal.save to throw an error when saving the goal
         const goalData = {
           guestToken: 'test-guest-token',
           goalName: 'Test Goal',
-          targetAmount: 1000,
-          product: { name: 'Test Product', price: 1000 }
+          targetAmount: 1000
         };
 
+        // Use a spy to intercept the save call on the instance
+        const saveSpy = jest.spyOn(SavingsGoal.prototype, 'save').mockImplementationOnce(async () => {
+          throw new Error('Database error');
+        });
+
         const response = await request(app)
-          .post('/api/savings-goal/create-guest-goal')
+          .post('/api/savings-goal/guest')
           .send(goalData)
           .expect(500);
 
         expect(response.body.error).toBe('Failed to create savings goal');
 
-        // Restore original save method
-        SavingsGoal.prototype.save = originalSave;
+        // Restore
+        saveSpy.mockRestore();
       });
     });
 
-    describe('POST /:savingsGoalId/refund', () => {
+    describe('POST /:id/refund', () => {
       let shopifyGoal;
       let merchant;
 

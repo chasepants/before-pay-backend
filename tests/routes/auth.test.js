@@ -61,10 +61,12 @@ const { ensureAuthenticated } = require('../../middleware/auth.js');
 
 const User = require('../../models/User');
 const authRouter = require('../../routes/auth');
+const userRouter = require('../../routes/users');
 
 const app = express();
 app.use(express.json());
 app.use('/api/auth', authRouter);
+app.use('/api/users', userRouter);
 
 describe('Auth Routes', () => {
   let mongoServer;
@@ -190,10 +192,10 @@ describe('Auth Routes', () => {
     });
   });
 
-  describe('GET /current_user', () => {
+  describe('GET /api/users', () => {
     it('should return user data with valid token', async () => {
       const response = await request(app)
-        .get('/api/auth/current_user')
+        .get('/api/users')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
@@ -207,7 +209,7 @@ describe('Auth Routes', () => {
 
     it('should return null with no token', async () => {
       const response = await request(app)
-        .get('/api/auth/current_user')
+        .get('/api/users')
         .expect(200);
 
       expect(response.body).toBeNull();
@@ -215,7 +217,7 @@ describe('Auth Routes', () => {
 
     it('should return null with invalid token', async () => {
       const response = await request(app)
-        .get('/api/auth/current_user')
+        .get('/api/users')
         .set('Authorization', `Bearer invalid-token`)
         .expect(200);
 
@@ -223,14 +225,14 @@ describe('Auth Routes', () => {
     });
   });
 
-  describe('GET /customer-token', () => {
+  describe('GET /api/users/customer-token', () => {
     it('should return customer token for authenticated user', async () => {
       mockUnitInstance.customerToken.createToken.mockResolvedValue({
         data: { attributes: { token: 'unit-token-123' } }
       });
 
       const response = await request(app)
-        .get('/api/auth/customer-token')
+        .get('/api/users/customer-token')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
@@ -245,7 +247,7 @@ describe('Auth Routes', () => {
       await User.findByIdAndUpdate(testUser._id, { unitCustomerId: null });
 
       const response = await request(app)
-        .get('/api/auth/customer-token')
+        .get('/api/users/customer-token')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(400);
 
@@ -254,7 +256,7 @@ describe('Auth Routes', () => {
 
     it('should return 401 if not authenticated', async () => {
       const response = await request(app)
-        .get('/api/auth/customer-token')
+        .get('/api/users/customer-token')
         .expect(401);
 
       expect(response.body).toEqual({ error: 'Unauthorized' });
@@ -271,7 +273,7 @@ describe('Auth Routes', () => {
     });
   });
 
-  describe('GET /create-application-form', () => {
+  describe('POST /api/users/unit-application-form', () => {
     it('should create new application form', async () => {
       axios.post.mockResolvedValue({
         data: {
@@ -284,7 +286,7 @@ describe('Auth Routes', () => {
       });
 
       const response = await request(app)
-        .get('/api/auth/create-application-form')
+        .post('/api/users/unit-application-form')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
@@ -303,7 +305,7 @@ describe('Auth Routes', () => {
       await User.deleteMany({});
 
       const response = await request(app)
-        .get('/api/auth/create-application-form')
+        .post('/api/users/unit-application-form')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(400);
 
@@ -312,7 +314,7 @@ describe('Auth Routes', () => {
 
     it('should return 401 if not authenticated', async () => {
       const response = await request(app)
-        .get('/api/auth/create-application-form')
+        .post('/api/users/unit-application-form')
         .expect(401);
 
       expect(response.body).toEqual({ error: 'Unauthorized' });

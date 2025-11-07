@@ -37,9 +37,11 @@ describe('Email/Password Authentication Routes', () => {
     // Mock JWT secret
     process.env.JWT_SECRET = 'test-jwt-secret';
     
-    // Import and use auth routes
+    // Import and use auth routes and user routes
     const authRoutes = require('../../routes/auth');
+    const userRoutes = require('../../routes/users');
     app.use('/api/auth', authRoutes);
+    app.use('/api/users', userRoutes);
   });
 
   afterAll(async () => {
@@ -51,7 +53,7 @@ describe('Email/Password Authentication Routes', () => {
     jest.clearAllMocks();
   });
 
-  describe('POST /api/auth/register', () => {
+  describe('POST /api/users (user registration)', () => {
     it('should register a new user successfully', async () => {
       const mockFirebaseUser = {
         uid: 'firebase-uid-123',
@@ -61,7 +63,7 @@ describe('Email/Password Authentication Routes', () => {
       mockCreateUser.mockResolvedValue(mockFirebaseUser);
 
       const response = await request(app)
-        .post('/api/auth/register')
+        .post('/api/users')
         .send({
           email: 'test@example.com',
           password: 'password123',
@@ -91,7 +93,7 @@ describe('Email/Password Authentication Routes', () => {
 
     it('should return 400 for missing required fields', async () => {
       const response = await request(app)
-        .post('/api/auth/register')
+        .post('/api/users')
         .send({
           email: 'test@example.com',
           password: 'password123'
@@ -104,7 +106,7 @@ describe('Email/Password Authentication Routes', () => {
 
     it('should return 400 for invalid email format', async () => {
       const response = await request(app)
-        .post('/api/auth/register')
+        .post('/api/users')
         .send({
           email: 'invalid-email',
           password: 'password123',
@@ -118,7 +120,7 @@ describe('Email/Password Authentication Routes', () => {
 
     it('should return 400 for weak password', async () => {
       const response = await request(app)
-        .post('/api/auth/register')
+        .post('/api/users')
         .send({
           email: 'test@example.com',
           password: '123', // Too short
@@ -139,7 +141,7 @@ describe('Email/Password Authentication Routes', () => {
       mockCreateUser.mockResolvedValue(mockFirebaseUser);
 
       await request(app)
-        .post('/api/auth/register')
+        .post('/api/users')
         .send({
           email: 'test@example.com',
           password: 'password123',
@@ -149,7 +151,7 @@ describe('Email/Password Authentication Routes', () => {
 
       // Try to register the same user again
       const response = await request(app)
-        .post('/api/auth/register')
+        .post('/api/users')
         .send({
           email: 'test@example.com',
           password: 'password123',
@@ -167,7 +169,7 @@ describe('Email/Password Authentication Routes', () => {
       mockCreateUser.mockRejectedValue(firebaseError);
 
       const response = await request(app)
-        .post('/api/auth/register')
+        .post('/api/users')
         .send({
           email: 'test@example.com',
           password: 'password123',
@@ -246,7 +248,7 @@ describe('Email/Password Authentication Routes', () => {
       mockCreateUser.mockResolvedValue(mockFirebaseUser);
 
       await request(app)
-        .post('/api/auth/register')
+        .post('/api/users')
         .send({
           email: 'test@example.com',
           password: 'password123',

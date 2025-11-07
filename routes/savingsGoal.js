@@ -18,22 +18,8 @@ const emailService = require('../services/emailService');
 const PlaidService = require('../services/plaidService');
 const UnitService = require('../services/unitService');
 
-const verificationCodeSchema = new mongoose.Schema({
-  email: { type: String, required: true, index: true },
-  code: { type: String, required: true },
-  expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } }
-}, { timestamps: true });
-
-const guestSessionSchema = new mongoose.Schema({
-  email: { type: String, required: true },
-  guestToken: { type: String, required: true, unique: true },
-  plaidToken: { type: String },
-  plaidAccountId: { type: String },
-  expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } }
-}, { timestamps: true });
-
-const VerificationCode = mongoose.model('VerificationCode', verificationCodeSchema);
-const GuestSession = mongoose.model('GuestSession', guestSessionSchema);
+const VerificationCode = require('../models/VerificationCode');
+const GuestSession = require('../models/GuestSession');
 
 router.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -87,11 +73,7 @@ router.get('/merchant/:shopDomain', ensureAuthenticated, async (req, res) => {
     if (req.user.userType !== 'merchant') {
       return res.status(403).json({ error: 'Access denied. Only merchants can access this endpoint.' });
     }
-    
-    // Find the merchant record to verify shop access
-    const User = require('../models/User');
-    const ShopifyMerchant = require('../models/ShopifyMerchant');
-    
+
     const user = await User.findById(req.user._id).populate('shopifyMerchantId');
     if (!user || !user.shopifyMerchantId) {
       return res.status(404).json({ error: 'Merchant account not found' });
@@ -137,22 +119,6 @@ router.get('/merchant/:shopDomain', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.get('/search', requireSavingsAccountUser, async (req, res) => {
-  const { q } = req.query;
-  try {
-    const response = await axios.get('https://serpapi.com/search', {
-      params: { api_key: process.env.SERPAPI_KEY, engine: 'google_shopping', q, num: 10 }
-    });
-    const products = response.data.shopping_results.map(item => ({
-      price: parseFloat(item.price?.replace(/[^0-9.]/g, '') || '0') || 0,
-      ...item
-    }));
-    res.json(products);
-  } catch (error) {
-    res.status(500).json({ error: 'Search failed' });
-  }
-});
-
 router.get('/:id', ensureAuthenticated, async (req, res) => {
   const { id } = req.params;
   try {
@@ -170,6 +136,26 @@ router.get('/:id', ensureAuthenticated, async (req, res) => {
     res.json(goal);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch savings goal' });
+  }
+});
+
+router.get('/:id/transactions', ensureAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const savingsGoal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
+    if (!savingsGoal) return res.status(404).json({ error: 'Savings goal not found' });
+    
+    const transactions = savingsGoal.transfers.map(transfer => ({
+      date: transfer.date.getTime() / 1000,
+      amount: transfer.amount,
+      status: transfer.status,
+      type: transfer.type,
+      transferId: transfer.transferId,
+      batchId: transfer.batchId
+    }));
+    res.json({ transactions });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -201,201 +187,10 @@ router.post('/shopify', verifyShopifySessionToken, async (req, res) => {
   }
 });
 
-router.post('/send-verification', async (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
-
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    await VerificationCode.deleteMany({ email });
-
-    await new VerificationCode({
-      email,
-      code: verificationCode,
-      expiresAt
-    }).save();
-
-    const emailResult = await emailService.sendVerificationCode(email, verificationCode);
-    
-    if (!emailResult.success) {
-      console.error('Failed to send verification email:', emailResult.error);
-    } else {
-      console.log('Verification email sent successfully:', emailResult.messageId);
-    }
-    
-    res.status(200).json({
-      success: true,
-      message: 'Verification code sent to your email'
-    });
-  } catch (error) {
-    console.error('Error sending verification code:', error);
-    res.status(500).json({ error: 'Failed to send verification code' });
-  }
-});
-
-router.post('/verify-code', async (req, res) => {
-  try {
-    const { email, verificationCode } = req.body;
-    
-    if (!email || !verificationCode) {
-      return res.status(400).json({ error: 'Email and verification code are required' });
-    }
-    
-    const storedCode = await VerificationCode.findOne({ email, code: verificationCode });
-    if (!storedCode) {
-      return res.status(400).json({ error: 'Invalid or expired verification code' });
-    }
-    
-    await VerificationCode.deleteOne({ _id: storedCode._id });
-    
-    const guestToken = require('crypto').randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-    
-    await new GuestSession({
-      email,
-      guestToken,
-      expiresAt
-    }).save();
-    
-    res.status(200).json({
-      success: true,
-      guestToken,
-      message: 'Email verified successfully'
-    });
-  } catch (error) {
-    console.error('Error verifying code:', error);
-    res.status(500).json({ error: 'Failed to verify code' });
-  }
-});
-
-router.post('/connect-plaid', async (req, res) => {
-  try {
-    const { guestToken, emailToken, publicToken, accountId } = req.body;
-    console.log(publicToken);
-    
-    if (!guestToken && !emailToken) {
-      return res.status(400).json({ error: 'Either guest token or email token is required' });
-    }
-
-    let guestSession;
-
-    const EmailToken = require('../models/EmailToken');
-    const emailTokenDoc = await EmailToken.findOne({ 
-      token: emailToken, 
-      expiresAt: { $gt: new Date() }
-    });
-    
-    if (!emailTokenDoc) {
-      return res.status(401).json({ error: 'Invalid or expired email token' });
-    }
-
-    guestSession = await GuestSession.findOne({ email: emailTokenDoc.email });
-    if (!guestSession) {
-      guestSession = new GuestSession({
-        email: emailTokenDoc.email,
-        guestToken: require('crypto').randomBytes(32).toString('hex'),
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-      });
-      await guestSession.save();
-    }
-
-    if (publicToken) {
-      try {
-        const plaidService = new PlaidService();
-        const exchangeResp = await plaidService.exchangePublicToken(publicToken);
-        guestSession.plaidToken = exchangeResp.data.access_token;
-
-        if (accountId) guestSession.plaidAccountId = accountId;
-      } catch (ex) {
-        console.error('Plaid exchange failed:', ex.message);
-        return res.status(500).json({ error: 'Failed to exchange Plaid token' });
-      }
-    } else {
-      return res.status(400).json({ error: 'Plaid token is required' });
-    }
-    await guestSession.save();
-    
-    res.status(200).json({
-      success: true,
-      accessToken: guestSession.plaidToken,
-      message: 'Plaid account connected successfully'
-    });
-  } catch (error) {
-    console.error('Error connecting Plaid:', error);
-    res.status(500).json({ error: 'Failed to connect Plaid account' });
-  }
-});
-
-router.post('/plaid/create-link-token', async (req, res) => {
-  try {
-    const { guestToken, emailToken } = req.body;
-    
-    if (!guestToken && !emailToken) {
-      return res.status(400).json({ error: 'Either guest token or email token is required' });
-    }
-
-    let userId;
-    let clientName = 'StashPay';
-
-    if (guestToken) {
-      const guestSession = await GuestSession.findOne({ guestToken });
-      if (!guestSession) {
-        return res.status(401).json({ error: 'Invalid or expired guest session' });
-      }
-      if (new Date() > guestSession.expiresAt) {
-        await GuestSession.deleteOne({ _id: guestSession._id });
-        return res.status(401).json({ error: 'Guest session expired' });
-      }
-      userId = guestSession._id;
-      clientName = 'StashPay Guest Checkout';
-    } else if (emailToken) {
-      const EmailToken = require('../models/EmailToken');
-      const emailTokenDoc = await EmailToken.findOne({ 
-        token: emailToken,
-        expiresAt: { $gt: new Date() }
-      });
-      
-      if (!emailTokenDoc) {
-        return res.status(401).json({ error: 'Invalid or expired email token' });
-      }
-      
-      userId = emailToken;
-      clientName = 'StashPay Savings Plan';
-    }
-
-    try {
-      const plaidService = new PlaidService();
-      const linkTokenResponse = await plaidService.createLinkToken(userId, clientName);
-      
-      return res.status(200).json({
-        success: true,
-        linkToken: linkTokenResponse.data.link_token,
-        expiration: linkTokenResponse.data.expiration
-      });
-    } catch (e) {
-      console.error('Plaid link token creation error:', e.message);
-      console.error('Plaid error details:', e.response?.data || e);
-      return res.status(500).json({ 
-        error: `Failed to create Plaid link token: ${e.message}`,
-        details: e.response?.data || 'No additional details available'
-      });
-    }
-  } catch (e) {
-    console.error('Plaid link token error:', e.message);
-    return res.status(500).json({ error: 'Failed to create Plaid link token' });
-  }
-});
-
-router.post('/create-guest-goal', async (req, res) => {
+router.post('/guest', async (req, res) => {
   /** TODO: Adding shipping address section */
   try {
-    const { guestToken, emailToken, goalName, description, targetAmount, product, bankDetails } = req.body;
+    const { guestToken, emailToken, goalName, description, targetAmount, bankDetails } = req.body;
     
     if ((!guestToken && !emailToken) || !goalName || !targetAmount) {
       return res.status(400).json({ error: 'Either guest token or email token, goal name, and target amount are required' });
@@ -721,42 +516,6 @@ router.post('/:id/generate-image', requireSavingsAccountUser, async (req, res) =
   }
 });
 
-router.post('/:id/ai-insights', requireSavingsAccountUser, async (req, res) => {
-  try {
-    const { type, prompt } = req.body;
-    
-    if (!type || !prompt) {
-      return res.status(400).json({ error: 'Type and prompt are required' });
-    }
-
-    const goal = await SavingsGoal.findOne({ 
-      _id: req.params.id, 
-      userId: req.user._id 
-    });
-
-    if (!goal) {
-      return res.status(404).json({ error: 'Savings goal not found' });
-    }
-
-    if (type === 'description-enhancement') {
-      const enhancedDescription = await enhanceDescription(prompt);
-      goal.description = enhancedDescription;
-      await goal.save();
-      
-      res.json({ 
-        message: 'Description enhanced successfully', 
-        enhancedDescription,
-        goal 
-      });
-    } else {
-      res.status(400).json({ error: 'Invalid insight type' });
-    }
-  } catch (error) {
-    console.error('xAI API error:', error.response?.data || error.message);
-    res.status(500).json({ error: 'Failed to generate AI insights' });
-  }
-});
-
 router.post('/:id/web-search', requireSavingsAccountUser, async (req, res) => {
   try {
     const { searchQuery } = req.body;
@@ -841,9 +600,9 @@ router.post('/:id/save-product', requireSavingsAccountUser, async (req, res) => 
   }
 });
 
-router.post('/:savingsGoalId/refund', ensureAuthenticated, async (req, res) => {
+router.post('/:id/refund', ensureAuthenticated, async (req, res) => {
   try {
-    const { savingsGoalId } = req.params;
+    const savingsGoalId = req.params.id;
     
     // Find the savings goal
     const goal = await SavingsGoal.findById(savingsGoalId);

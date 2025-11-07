@@ -5,6 +5,7 @@ const cors = require('cors');
 require('dotenv').config();
 require('./config/passport');
 const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
 const savingsGoalRoutes = require('./routes/savingsGoal');
 const bankRoutes = require('./routes/bank');
 const { webhook } = require('./webhooks/index');
@@ -187,8 +188,10 @@ app.options('/api/savings-goal', (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/savings-goal', savingsGoalRoutes);
 app.use('/api/bank', bankRoutes);
+app.use('/api/products', require('./routes/products'));
 app.use('/api/launch', launchRoutes);
 app.use('/api/shopify-merchant', shopifyMerchantRoutes);
 
