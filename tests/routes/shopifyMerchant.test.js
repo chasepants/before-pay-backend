@@ -727,13 +727,13 @@ describe('Shopify Merchant Routes', () => {
         emailSent: true
       });
       expect(SavingsGoal.countDocuments).toHaveBeenCalledWith({
-        'product.type': 'Shopify',
-        'product.shopDomain': 'test-shop.myshopify.com',
+        __t: 'ShopifySavingsGoal',
+        shopDomain: 'test-shop.myshopify.com',
         isPaused: false
       });
       expect(SavingsGoal.countDocuments).toHaveBeenCalledWith({
-        'product.type': 'Shopify',
-        'product.shopDomain': 'test-shop.myshopify.com'
+        __t: 'ShopifySavingsGoal',
+        shopDomain: 'test-shop.myshopify.com'
       });
     });
 

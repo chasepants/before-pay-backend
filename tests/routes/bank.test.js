@@ -464,23 +464,29 @@ describe('Bank Routes', () => {
     let mockUnitService;
 
     beforeEach(async () => {
-      testSavingsGoal1 = new SavingsGoal({
+      const { ManualSavingsGoal } = require('../../models/SavingsGoal');
+      
+      testSavingsGoal1 = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal 1',
         targetAmount: 1000,
         currentAmount: 300,
         category: 'other',
-        plaidToken: 'plaid-token-1'
+        bank: {
+          plaidToken: 'plaid-token-1'
+        }
       });
       await testSavingsGoal1.save();
 
-      testSavingsGoal2 = new SavingsGoal({
+      testSavingsGoal2 = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal 2',
         targetAmount: 500,
         currentAmount: 200,
         category: 'other',
-        plaidToken: 'plaid-token-2'
+        bank: {
+          plaidToken: 'plaid-token-2'
+        }
       });
       await testSavingsGoal2.save();
 
@@ -619,8 +625,8 @@ describe('Bank Routes', () => {
 
     it('should return 400 when no destination bank found', async () => {
       // Remove plaid tokens from goals
-      testSavingsGoal1.plaidToken = null;
-      testSavingsGoal2.plaidToken = null;
+      testSavingsGoal1.bank = null;
+      testSavingsGoal2.bank = null;
       await testSavingsGoal1.save();
       await testSavingsGoal2.save();
 

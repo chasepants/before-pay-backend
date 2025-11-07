@@ -11,73 +11,48 @@ const transferSchema = new Schema({
   type: { type: String, required: true },
 });
 
-const LineItemSchema = new Schema({
-  productId: { type: String, required: true },
-  variantId: { type: String },
-  quantity: { type: Number, min: 1, default: 1 },
-  presentmentTitle: { type: String, required: true },
-  vendor: { type: String },
-  price: { type: mongoose.Types.Decimal128, required: true }
-}, { _id: false });
-
-const googleProductSchema = new Schema({
-  type: { type: String, default: 'Google' },
-  productLink: { type: String },
-  title: { type: String },
-  price: { type: String },
-  old_price: { type: String },
-  extracted_price: { type: Number },
-  extracted_old_price: { type: Number },
-  product_id: { type: String },
-  serpapi_product_api: { type: String },
-  thumbnail: { type: String },
-  source: { type: String },
-  source_icon: { type: String },
-  rating: { type: Number },
-  reviews: { type: Number },
-  badge: { type: String },
-  tag: { type: String },
-  delivery: { type: String },
-  description: { type: String },
-  shopifyProductId: { type: String },
-  shopifyVariantId: { type: String },
-  handle: { type: String },
-  image: { type: String }
-});
-
-const shopifyCartSchema = new Schema({
-  type: { type: String, default: 'Shopify' },
-  checkoutId: { type: String },
-  shopDomain: { type: String },
-  currency: { type: String },
-  totalPrice: { type: String },
-  customerId: { type: String },
-  lineItems: [{
-    productId: { type: String },
-    presentmentTitle: { type: String },
-    vendor: { type: String },
-    price: { type: String }
-  }]
-});
-
 const scheduleSchema = new Schema({
   startDate: Date,
   interval: String,
   dayOfMonth: Number,
   dayOfWeek: String,
-  frequency: { type: String },
   installments: { type: Number },
-  amountPerInstallment: { type: Number }
-})
+});
 
 const bankSchema = new Schema({
   bankName: String,
   bankAccountName: String,
   bankLastFour: String,
-  bankAccountType: String
-})
+  bankAccountType: String,
+  plaidToken: String
+});
 
-const savingsGoalSchema = new mongoose.Schema({
+// Google Shopping enrichment data schema (optional for ManualSavingsGoal)
+const googleShoppingDataSchema = new Schema({
+  productLink: String,
+  title: String,
+  price: String,
+  old_price: String,
+  extracted_price: Number,
+  extracted_old_price: Number,
+  product_id: String,
+  serpapi_product_api: String,
+  thumbnail: String,
+  source: String,
+  source_icon: String,
+  rating: Number,
+  reviews: Number,
+  badge: String,
+  tag: String,
+  delivery: String,
+  description: String,
+  shopifyProductId: String,
+  shopifyVariantId: String,
+  handle: String,
+  image: String
+}, { _id: false });
+
+const savingsGoalBaseSchema = new mongoose.Schema({
   userId: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'User', 
@@ -88,34 +63,47 @@ const savingsGoalSchema = new mongoose.Schema({
   targetAmount: { type: Number, required: true },
   currentAmount: { type: Number, default: 0 },
   savingsAmount: Number,
-  category: { type: String, enum: ['product', 'trip', 'donation', 'education', 'home', 'other'], default: 'other' },
-  product: { type: Schema.Types.Mixed, required: false },
   schedule: scheduleSchema,
   bank: bankSchema,
-  plaidToken: String,
   transfers: [transferSchema],
   isPaused: { type: Boolean, default: false },
-  aiGeneratedImage: String,
-  source: { type: String, default: 'web' },
   guestEmail: { type: String },
-  aiInsights: [{
-    type: String,
-    content: String,
-    createdAt: { type: Date, default: Date.now }
-  }]
 }, {
   timestamps: true,
-  minimize: false
+  minimize: false,
+  discriminatorKey: '__t'
 });
 
-savingsGoalSchema.pre('save', function(next) {
-  if (this.product && this.product.price !== undefined) {
-    this.product.price = String(this.product.price);
-  }
-  if (this.product && this.product.old_price !== undefined) {
-    this.product.old_price = String(this.product.old_price);
-  }
-  next();
+const manualSavingsGoalSchema = new Schema({
+  category: { 
+    type: String, 
+    enum: ['product', 'trip', 'donation', 'education', 'home', 'other'], 
+    default: 'other' 
+  },
+  aiGeneratedImage: String,
+  googleShoppingData: [googleShoppingDataSchema],
+  manualProductLink: String,
+  manualTitle: String,
+  manualPrice: String
 });
 
-module.exports = mongoose.model('SavingsGoal', savingsGoalSchema);
+const shopifySavingsGoalSchema = new Schema({
+  checkoutCartId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'CheckoutCart', 
+    required: true 
+  },
+  shopDomain: { 
+    type: String, 
+    required: true 
+  } // why do we need this if it's on the checkout cart model?
+});
+
+const SavingsGoal = mongoose.model('SavingsGoal', savingsGoalBaseSchema);
+
+const ManualSavingsGoal = SavingsGoal.discriminator('ManualSavingsGoal', manualSavingsGoalSchema);
+const ShopifySavingsGoal = SavingsGoal.discriminator('ShopifySavingsGoal', shopifySavingsGoalSchema);
+
+module.exports = SavingsGoal;
+module.exports.ManualSavingsGoal = ManualSavingsGoal;
+module.exports.ShopifySavingsGoal = ShopifySavingsGoal;

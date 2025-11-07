@@ -6,7 +6,9 @@ const jwt = require('jsonwebtoken');
 const savingsGoalRouter = require('../../routes/savingsGoal');
 const User = require('../../models/User');
 const SavingsGoal = require('../../models/SavingsGoal');
+const { ManualSavingsGoal, ShopifySavingsGoal } = require('../../models/SavingsGoal');
 const ShopifyMerchant = require('../../models/ShopifyMerchant');
+const CheckoutCart = require('../../models/CheckoutCart');
 const EmailToken = require('../../models/EmailToken');
 const { generateImage, enhanceDescription } = require('../../services/xaiService');
 const { searchProducts } = require('../../services/webSearchService');
@@ -84,6 +86,7 @@ describe('SavingsGoal Routes', () => {
     await User.deleteMany({});
     await SavingsGoal.deleteMany({});
     await ShopifyMerchant.deleteMany({});
+    await CheckoutCart.deleteMany({});
 
     // Reset all mocks before each test
     jest.clearAllMocks();
@@ -295,7 +298,7 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should return savings goal when it exists and belongs to authenticated user', async () => {
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Vacation Fund',
         targetAmount: 5000,
@@ -343,19 +346,19 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should handle savings goal with nested product data', async () => {
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'New Laptop',
         targetAmount: 1500,
         currentAmount: 500,
-        product: {
+        googleShoppingData: [{
           title: 'MacBook Pro',
           price: '$1499',
           thumbnail: 'https://example.com/laptop.jpg',
           source: 'Apple Store',
           rating: 4.8,
           reviews: 1250
-        }
+        }]
       });
       await testGoal.save();
 
@@ -364,12 +367,12 @@ describe('SavingsGoal Routes', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
-      expect(response.body.product.title).toBe('MacBook Pro');
-      expect(response.body.product.price).toBe('$1499');
-      expect(response.body.product.thumbnail).toBe('https://example.com/laptop.jpg');
-      expect(response.body.product.source).toBe('Apple Store');
-      expect(response.body.product.rating).toBe(4.8);
-      expect(response.body.product.reviews).toBe(1250);
+      expect(response.body.googleShoppingData[0].title).toBe('MacBook Pro');
+      expect(response.body.googleShoppingData[0].price).toBe('$1499');
+      expect(response.body.googleShoppingData[0].thumbnail).toBe('https://example.com/laptop.jpg');
+      expect(response.body.googleShoppingData[0].source).toBe('Apple Store');
+      expect(response.body.googleShoppingData[0].rating).toBe(4.8);
+      expect(response.body.googleShoppingData[0].reviews).toBe(1250);
     });
   });
 
@@ -464,12 +467,12 @@ describe('SavingsGoal Routes', () => {
         .send(goalData)
         .expect(201);
 
-      expect(response.body.product.title).toBe('MacBook Pro');
-      expect(response.body.product.price).toBe('1499');
-      expect(response.body.product.thumbnail).toBe('https://example.com/laptop.jpg');
-      expect(response.body.product.source).toBe('Apple Store');
-      expect(response.body.product.rating).toBe(4.8);
-      expect(response.body.product.reviews).toBe(1250);
+      expect(response.body.googleShoppingData[0].title).toBe('MacBook Pro');
+      expect(response.body.googleShoppingData[0].price).toBe('1499');
+      expect(response.body.googleShoppingData[0].thumbnail).toBe('https://example.com/laptop.jpg');
+      expect(response.body.googleShoppingData[0].source).toBe('Apple Store');
+      expect(response.body.googleShoppingData[0].rating).toBe(4.8);
+      expect(response.body.googleShoppingData[0].reviews).toBe(1250);
     });
 
     it('should handle goalName fallback to title when goalName is not provided', async () => {
@@ -508,6 +511,7 @@ describe('SavingsGoal Routes', () => {
       const goalData = {
         goalName: 'Test Goal',
         targetAmount: '2000', // String that should be parsed
+        title: 'Test Product', // Need at least one of title/price/productLink to create googleShoppingData
         extracted_price: '1500.50',
         extracted_old_price: '1800.25'
       };
@@ -519,8 +523,8 @@ describe('SavingsGoal Routes', () => {
         .expect(201);
 
       expect(response.body.targetAmount).toBe(2000);
-      expect(response.body.product.extracted_price).toBe(1500.50);
-      expect(response.body.product.extracted_old_price).toBe(1800.25);
+      expect(response.body.googleShoppingData[0].extracted_price).toBe(1500.50);
+      expect(response.body.googleShoppingData[0].extracted_old_price).toBe(1800.25);
     });
 
     it('should handle undefined numeric fields gracefully', async () => {
@@ -537,8 +541,12 @@ describe('SavingsGoal Routes', () => {
         .send(goalData)
         .expect(201);
 
-      expect(response.body.product.extracted_price).toBeUndefined();
-      expect(response.body.product.extracted_old_price).toBeUndefined();
+      // If no product data provided, googleShoppingData should be empty or undefined
+      expect(response.body.googleShoppingData).toBeDefined();
+      if (response.body.googleShoppingData && response.body.googleShoppingData.length > 0) {
+        expect(response.body.googleShoppingData[0].extracted_price).toBeUndefined();
+        expect(response.body.googleShoppingData[0].extracted_old_price).toBeUndefined();
+      }
     });
 
     it('should set default values correctly', async () => {
@@ -607,13 +615,12 @@ describe('SavingsGoal Routes', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .send(goalData)
         .expect(201);
-      console.log(response.body);
-      expect(response.body.product.product_id).toBe('gaming-123');
-      expect(response.body.product.serpapi_product_api).toBe('https://serpapi.com/product');
-      expect(response.body.product.source_icon).toBe('https://example.com/icon.png');
-      expect(response.body.product.badge).toBe('Best Seller');
-      expect(response.body.product.tag).toBe('Gaming');
-      expect(response.body.product.delivery).toBe('Free Shipping');
+      expect(response.body.googleShoppingData[0].product_id).toBe('gaming-123');
+      expect(response.body.googleShoppingData[0].serpapi_product_api).toBe('https://serpapi.com/product');
+      expect(response.body.googleShoppingData[0].source_icon).toBe('https://example.com/icon.png');
+      expect(response.body.googleShoppingData[0].badge).toBe('Best Seller');
+      expect(response.body.googleShoppingData[0].tag).toBe('Gaming');
+      expect(response.body.googleShoppingData[0].delivery).toBe('Free Shipping');
     });
   });
 
@@ -748,25 +755,25 @@ describe('SavingsGoal Routes', () => {
 
     it('should handle savings goal with complex product data during deletion', async () => {
       // Create a test savings goal with product data
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Product Goal to Delete',
         targetAmount: 3000,
         currentAmount: 1000,
-        product: {
+        googleShoppingData: [{
           title: 'Test Product',
-          price: 2999,
+          price: '2999',
           source: 'Test Store',
           rating: 4.5,
           reviews: 100
-        }
+        }]
       });
       await testGoal.save();
 
       // Verify it exists with product data
-      const savedGoal = await SavingsGoal.findById(testGoal._id);
-      expect(savedGoal.product.title).toBe('Test Product');
-      expect(savedGoal.product.price).toBe('2999');
+      const savedGoal = await ManualSavingsGoal.findById(testGoal._id);
+      expect(savedGoal.googleShoppingData[0].title).toBe('Test Product');
+      expect(savedGoal.googleShoppingData[0].price).toBe('2999');
 
       // Delete the goal
       const response = await request(app)
@@ -929,14 +936,14 @@ describe('SavingsGoal Routes', () => {
 
     it('should successfully update description when provided', async () => {
       // Create a test savings goal
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal',
         targetAmount: 1000,
         currentAmount: 0,
-        product: {
+        googleShoppingData: [{
           description: 'Original description'
-        }
+        }]
       });
       await testGoal.save();
 
@@ -948,12 +955,12 @@ describe('SavingsGoal Routes', () => {
         .send(updateData)
         .expect(200);
 
-      expect(response.body.product.description).toBe('Updated description');
+      expect(response.body.description).toBe('Updated description');
       expect(response.body.goalName).toBe('Test Goal'); // Should remain unchanged
 
       // Verify it was saved to database
-      const updatedGoal = await SavingsGoal.findById(testGoal._id);
-      expect(updatedGoal.product.description).toBe('Updated description');
+      const updatedGoal = await ManualSavingsGoal.findById(testGoal._id);
+      expect(updatedGoal.description).toBe('Updated description');
 
       // Clean up
       await SavingsGoal.deleteOne({ _id: testGoal._id });
@@ -991,14 +998,12 @@ describe('SavingsGoal Routes', () => {
 
     it('should handle multiple field updates simultaneously', async () => {
       // Create a test savings goal
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Original Goal',
         targetAmount: 1000,
         currentAmount: 0,
-        product: {
-          description: 'Original description'
-        }
+        description: 'Original description'
       });
       await testGoal.save();
 
@@ -1015,13 +1020,13 @@ describe('SavingsGoal Routes', () => {
         .expect(200);
 
       expect(response.body.goalName).toBe('Updated Goal');
-      expect(response.body.product.description).toBe('Updated description');
+      expect(response.body.description).toBe('Updated description');
       expect(response.body.targetAmount).toBe(2500);
 
       // Verify it was saved to database
-      const updatedGoal = await SavingsGoal.findById(testGoal._id);
+      const updatedGoal = await ManualSavingsGoal.findById(testGoal._id);
       expect(updatedGoal.goalName).toBe('Updated Goal');
-      expect(updatedGoal.product.description).toBe('Updated description');
+      expect(updatedGoal.description).toBe('Updated description');
       expect(updatedGoal.targetAmount).toBe(2500);
 
       // Clean up
@@ -1030,17 +1035,17 @@ describe('SavingsGoal Routes', () => {
 
     it('should handle partial updates without affecting other fields', async () => {
       // Create a test savings goal with more data
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Original Goal',
         targetAmount: 1000,
         currentAmount: 500,
         category: 'trip',
-        product: {
+        googleShoppingData: [{
           title: 'Original Product',
-          price: 999,
+          price: '999',
           source: 'Original Store'
-        }
+        }]
       });
       await testGoal.save();
 
@@ -1057,9 +1062,9 @@ describe('SavingsGoal Routes', () => {
       expect(response.body.targetAmount).toBe(1000); // Unchanged
       expect(response.body.currentAmount).toBe(500); // Unchanged
       expect(response.body.category).toBe('trip'); // Unchanged
-      expect(response.body.product.title).toBe('Original Product'); // Unchanged
-      expect(response.body.product.price).toBe('999'); // Unchanged
-      expect(response.body.product.source).toBe('Original Store'); // Unchanged
+      expect(response.body.googleShoppingData[0].title).toBe('Original Product'); // Unchanged
+      expect(response.body.googleShoppingData[0].price).toBe('999'); // Unchanged
+      expect(response.body.googleShoppingData[0].source).toBe('Original Store'); // Unchanged
 
       // Clean up
       await SavingsGoal.deleteOne({ _id: testGoal._id });
@@ -1311,17 +1316,17 @@ describe('SavingsGoal Routes', () => {
 
     it('should preserve all other fields when updating pause state', async () => {
       // Create a test savings goal with comprehensive data
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Comprehensive Test Goal',
         targetAmount: 5000,
         currentAmount: 2500,
         category: 'trip',
-        product: {
+        googleShoppingData: [{
           title: 'Test Product',
-          price: 4999,
+          price: '4999',
           source: 'Test Store'
-        },
+        }],
         transfers: [
           {
             transferId: 'transfer-123',
@@ -1349,9 +1354,9 @@ describe('SavingsGoal Routes', () => {
       expect(response.body.targetAmount).toBe(5000);
       expect(response.body.currentAmount).toBe(2500);
       expect(response.body.category).toBe('trip');
-      expect(response.body.product.title).toBe('Test Product');
-      expect(response.body.product.price).toBe('4999');
-      expect(response.body.product.source).toBe('Test Store');
+      expect(response.body.googleShoppingData[0].title).toBe('Test Product');
+      expect(response.body.googleShoppingData[0].price).toBe('4999');
+      expect(response.body.googleShoppingData[0].source).toBe('Test Store');
       expect(response.body.transfers).toHaveLength(1);
       expect(response.body.transfers[0].transferId).toBe('transfer-123');
 
@@ -1507,7 +1512,7 @@ describe('SavingsGoal Routes', () => {
       xaiService.generateImage.mockResolvedValue('https://example.com/generated-image.jpg');
 
       // Create a test savings goal
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal for Image',
         targetAmount: 1000,
@@ -1780,7 +1785,7 @@ describe('SavingsGoal Routes', () => {
         goalName: 'Test Goal for Search',
         targetAmount: 1000,
         currentAmount: 0
-        // No product field
+        // No product field - this will be a base SavingsGoal, not ManualSavingsGoal
       });
       await testGoal.save();
 
@@ -1790,7 +1795,7 @@ describe('SavingsGoal Routes', () => {
         .send({ query: 'test query' })
         .expect(400);
 
-      expect(response.body.error).toBe('Web search is only available for product-type savings goals');
+      expect(response.body.error).toBe('Web search is only available for manual savings goals');
     });
 
     it('should successfully perform web search when valid query is provided', async () => {
@@ -1820,18 +1825,18 @@ describe('SavingsGoal Routes', () => {
       });
 
       // Create a test savings goal with complete product data (required for web search)
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Vacation Fund',
         targetAmount: 2000,
         currentAmount: 500,
-        product: {
+        googleShoppingData: [{
           productLink: 'https://example.com/product',
           title: 'Vacation Package',
           price: '1999',
           source: 'Travel Agency',
           thumbnail: 'https://example.com/thumbnail.jpg'
-        },
+        }],
         category: 'product'
       });
       await testGoal.save();
@@ -1860,18 +1865,18 @@ describe('SavingsGoal Routes', () => {
       });
 
       // Create a test savings goal with complete product data (required for web search)
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Rare Item Fund',
         targetAmount: 1000,
         currentAmount: 0,
-        product: {
+        googleShoppingData: [{
           productLink: 'https://example.com/product',
           title: 'Rare Item',
           price: '999',
           source: 'Rare Store',
           thumbnail: 'https://example.com/thumbnail.jpg'
-        },
+        }],
         category: 'product'
       });
       await testGoal.save();
@@ -1895,18 +1900,18 @@ describe('SavingsGoal Routes', () => {
       webSearchService.searchProducts.mockRejectedValue(new Error('Search service unavailable'));
 
       // Create a test savings goal with complete product data (required for web search)
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal for Search',
         targetAmount: 1000,
         currentAmount: 0,
-        product: {
+        googleShoppingData: [{
           productLink: 'https://example.com/product',
           title: 'Test Product',
           price: '999',
           source: 'Test Store',
           thumbnail: 'https://example.com/thumbnail.jpg'
-        },
+        }],
         category: 'product'
       });
       await testGoal.save();
@@ -1939,18 +1944,18 @@ describe('SavingsGoal Routes', () => {
       });
 
       // Create a test savings goal with complete product data (required for web search)
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal for Search',
         targetAmount: 1000,
         currentAmount: 0,
-        product: {
+        googleShoppingData: [{
           productLink: 'https://example.com/product',
           title: 'Test Product',
           price: '999',
           source: 'Test Store',
           thumbnail: 'https://example.com/thumbnail.jpg'
-        },
+        }],
         category: 'product'
       });
       await testGoal.save();
@@ -1986,18 +1991,18 @@ describe('SavingsGoal Routes', () => {
       });
 
       // Create a test savings goal with complete product data (required for web search)
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal for Search',
         targetAmount: 1000,
         currentAmount: 0,
-        product: {
+        googleShoppingData: [{
           productLink: 'https://example.com/product',
           title: 'Test Product',
           price: '999',
           source: 'Test Store',
           thumbnail: 'https://example.com/thumbnail.jpg'
-        },
+        }],
         category: 'product'
       });
       await testGoal.save();
@@ -2033,20 +2038,20 @@ describe('SavingsGoal Routes', () => {
       });
 
       // Create a test savings goal with specific details and valid category
-      const testGoal = new SavingsGoal({
+      const testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Gaming Setup Fund',
         targetAmount: 1500,
         currentAmount: 300,
         category: 'other', // Use valid category from schema
         description: 'Save for a high-end gaming computer setup',
-        product: {
+        googleShoppingData: [{
           productLink: 'https://example.com/product',
           title: 'Gaming Setup',
           price: '1499',
           source: 'Gaming Store',
           thumbnail: 'https://example.com/thumbnail.jpg'
-        }
+        }]
       });
       await testGoal.save();
 
@@ -2070,16 +2075,16 @@ describe('SavingsGoal Routes', () => {
 
     beforeEach(async () => {
       // Create a test savings goal
-      testGoal = new SavingsGoal({
+      testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal',
         targetAmount: 1000,
         currentAmount: 0,
         category: 'other',
-        product: {
+        googleShoppingData: [{
           title: 'Original Product',
           price: '500'
-        }
+        }]
       });
       await testGoal.save();
     });
@@ -2133,25 +2138,30 @@ describe('SavingsGoal Routes', () => {
         .expect(200);
 
       expect(response.body.message).toBe('Product saved successfully');
-      expect(response.body.goal.product.title).toBe('New Gaming Laptop');
-      expect(response.body.goal.product.price).toBe('1299');
-      expect(response.body.goal.product.old_price).toBe('1499');
-      expect(response.body.goal.product.thumbnail).toBe('https://example.com/laptop.jpg');
-      expect(response.body.goal.product.source).toBe('Tech Store');
-      expect(response.body.goal.product.productLink).toBe('https://example.com/laptop');
-      expect(response.body.goal.product.rating).toBe(4.5);
-      expect(response.body.goal.product.reviews).toBe(150);
+      expect(response.body.goal.googleShoppingData[0].title).toBe('New Gaming Laptop');
+      expect(response.body.goal.googleShoppingData[0].price).toBe('1299');
+      expect(response.body.goal.googleShoppingData[0].old_price).toBe('1499');
+      expect(response.body.goal.googleShoppingData[0].thumbnail).toBe('https://example.com/laptop.jpg');
+      expect(response.body.goal.googleShoppingData[0].source).toBe('Tech Store');
+      expect(response.body.goal.googleShoppingData[0].productLink).toBe('https://example.com/laptop');
+      expect(response.body.goal.googleShoppingData[0].rating).toBe(4.5);
+      expect(response.body.goal.googleShoppingData[0].reviews).toBe(150);
     });
 
     it('should handle database errors when saving product', async () => {
-      // Mock the save method to throw an error
-      const originalSave = SavingsGoal.prototype.save;
-      SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
-
       const productData = {
         title: 'New Product',
         price: '100'
       };
+
+      // Create a new goal instance and mock its save method
+      const errorGoal = await ManualSavingsGoal.findById(testGoal._id);
+      const originalSave = errorGoal.save.bind(errorGoal);
+      errorGoal.save = jest.fn().mockRejectedValue(new Error('Database error'));
+
+      // Mock findOne to return our error goal
+      const originalFindOne = SavingsGoal.findOne;
+      SavingsGoal.findOne = jest.fn().mockResolvedValue(errorGoal);
 
       const response = await request(app)
         .post(`/api/savings-goal/${testGoal._id}/save-product`)
@@ -2161,8 +2171,9 @@ describe('SavingsGoal Routes', () => {
 
       expect(response.body.error).toBe('Failed to save product');
 
-      // Restore the original save method
-      SavingsGoal.prototype.save = originalSave;
+      // Restore the original methods
+      SavingsGoal.findOne = originalFindOne;
+      errorGoal.save = originalSave;
     });
   });
 
@@ -2170,7 +2181,7 @@ describe('SavingsGoal Routes', () => {
     let testGoal;
 
     beforeEach(async () => {
-      testGoal = new SavingsGoal({
+      testGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal',
         targetAmount: 1000,
@@ -2235,17 +2246,17 @@ describe('SavingsGoal Routes', () => {
 
     it('should return 400 when search query is empty for web-search', async () => {
       // Create a product-type goal with product data for web search
-      const productGoal = new SavingsGoal({
+      const productGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Product Goal',
         targetAmount: 1000,
         currentAmount: 0,
         category: 'product',
-        product: {
+        googleShoppingData: [{
           title: 'Test Product',
           price: '100',
           source: 'Test Store'
-        }
+        }]
       });
       await productGoal.save();
 
@@ -2266,17 +2277,17 @@ describe('SavingsGoal Routes', () => {
 
     it('should return 400 when search query is only whitespace for web-search', async () => {
       // Create a product-type goal with product data for web search
-      const productGoal = new SavingsGoal({
+      const productGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Product Goal',
         targetAmount: 1000,
         currentAmount: 0,
         category: 'product',
-        product: {
+        googleShoppingData: [{
           title: 'Test Product',
           price: '100',
           source: 'Test Store'
-        }
+        }]
       });
       await productGoal.save();
 
@@ -2468,15 +2479,21 @@ describe('SavingsGoal Routes', () => {
   describe('POST /api/savings-goal/shopify', () => {
 
     it('should create a savings goal with valid data', async () => {
+      // Create CheckoutCart first
+      const cart = new CheckoutCart({
+        checkoutId: 'test-checkout-123',
+        email: 'test@example.com',
+        shopDomain: 'test-shop.myshopify.com',
+        totalPrice: '100.50'
+      });
+      await cart.save();
+
       const goalData = {
         goalName: 'Test Shopify Goal',
         description: 'Test description',
         targetAmount: 100.50,
-        product: {
-          title: 'Test Product',
-          price: 100.50,
-          source: 'Shopify Store'
-        }
+        checkoutCartId: cart._id.toString(),
+        shopDomain: 'test-shop.myshopify.com'
       };
 
       const response = await request(app)
@@ -2487,22 +2504,30 @@ describe('SavingsGoal Routes', () => {
       expect(response.body).toMatchObject({
         goalName: 'Test Shopify Goal',
         description: 'Test description',
-        targetAmount: 100.50,
-        product: {
-          title: 'Test Product',
-          price: '100.5',
-          source: 'Shopify Store'
-        },
-        source: 'shopify'
+        targetAmount: 100.50
       });
       expect(response.body._id).toBeDefined();
+      expect(response.body.__t).toBe('ShopifySavingsGoal');
+      expect(response.body.checkoutCartId).toBe(cart._id.toString());
+      expect(response.body.shopDomain).toBe('test-shop.myshopify.com');
       expect(response.body.userId).toBeUndefined(); // Should not have userId
     });
 
     it('should create a savings goal with minimal data', async () => {
+      // Create CheckoutCart first
+      const cart = new CheckoutCart({
+        checkoutId: 'test-checkout-minimal',
+        email: 'test@example.com',
+        shopDomain: 'test-shop.myshopify.com',
+        totalPrice: '50'
+      });
+      await cart.save();
+
       const goalData = {
         goalName: 'Minimal Goal',
-        targetAmount: 50
+        targetAmount: 50,
+        checkoutCartId: cart._id.toString(),
+        shopDomain: 'test-shop.myshopify.com'
       };
 
       const response = await request(app)
@@ -2513,10 +2538,9 @@ describe('SavingsGoal Routes', () => {
       expect(response.body).toMatchObject({
         goalName: 'Minimal Goal',
         targetAmount: 50,
-        description: '',
-        source: 'shopify'
+        description: ''
       });
-      expect(response.body.product).toBeDefined();
+      expect(response.body.__t).toBe('ShopifySavingsGoal');
     });
 
     it('should return 400 if goalName is missing', async () => {
@@ -2599,9 +2623,20 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should parse targetAmount as float', async () => {
+      // Create CheckoutCart first
+      const cart = new CheckoutCart({
+        checkoutId: 'test-checkout-float',
+        email: 'test@example.com',
+        shopDomain: 'test-shop.myshopify.com',
+        totalPrice: '150.75'
+      });
+      await cart.save();
+
       const goalData = {
         goalName: 'Test Goal',
-        targetAmount: '150.75'
+        targetAmount: '150.75',
+        checkoutCartId: cart._id.toString(),
+        shopDomain: 'test-shop.myshopify.com'
       };
 
       const response = await request(app)
@@ -2613,28 +2648,34 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should handle complex product data', async () => {
+      // Create CheckoutCart first
+      const cart = new CheckoutCart({
+        checkoutId: 'test-checkout-complex',
+        email: 'test@example.com',
+        shopDomain: 'test-shop.myshopify.com',
+        totalPrice: '200',
+        lineItems: [
+          {
+            title: 'Item 1',
+            quantity: 2,
+            price: 50,
+            currency: 'USD'
+          },
+          {
+            title: 'Item 2',
+            quantity: 1,
+            price: 100,
+            currency: 'USD'
+          }
+        ]
+      });
+      await cart.save();
+
       const goalData = {
         goalName: 'Complex Product Goal',
         targetAmount: 200,
-        product: {
-          title: 'Complex Product',
-          price: 200,
-          source: 'Shopify Store',
-          lineItems: [
-            {
-              title: 'Item 1',
-              quantity: 2,
-              price: 50,
-              currency: 'USD'
-            },
-            {
-              title: 'Item 2',
-              quantity: 1,
-              price: 100,
-              currency: 'USD'
-            }
-          ]
-        }
+        checkoutCartId: cart._id.toString(),
+        shopDomain: 'test-shop.myshopify.com'
       };
 
       const response = await request(app)
@@ -2642,21 +2683,30 @@ describe('SavingsGoal Routes', () => {
         .send(goalData)
         .expect(201);
 
-      expect(response.body.product).toMatchObject({
-        title: 'Complex Product',
-        price: '200',
-        source: 'Shopify Store'
-      });
+      expect(response.body.__t).toBe('ShopifySavingsGoal');
+      expect(response.body.checkoutCartId).toBe(cart._id.toString());
+      expect(response.body.shopDomain).toBe('test-shop.myshopify.com');
     });
 
     it('should handle database errors gracefully', async () => {
-      // Mock SavingsGoal.save to throw an error
-      const originalSave = SavingsGoal.prototype.save;
-      SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
+      // Create CheckoutCart first
+      const cart = new CheckoutCart({
+        checkoutId: 'test-checkout-error',
+        email: 'test@example.com',
+        shopDomain: 'test-shop.myshopify.com',
+        totalPrice: '100'
+      });
+      await cart.save();
+
+      // Mock ShopifySavingsGoal save to throw an error
+      const originalSave = ShopifySavingsGoal.prototype.save;
+      ShopifySavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
 
       const goalData = {
         goalName: 'Test Goal',
-        targetAmount: 100
+        targetAmount: 100,
+        checkoutCartId: cart._id.toString(),
+        shopDomain: 'test-shop.myshopify.com'
       };
 
       const response = await request(app)
@@ -2666,14 +2716,25 @@ describe('SavingsGoal Routes', () => {
 
       expect(response.body.error).toBe('Failed to create savings goal');
 
-      // Restore original save method
-      SavingsGoal.prototype.save = originalSave;
+      // Restore original method
+      ShopifySavingsGoal.prototype.save = originalSave;
     });
 
     it('should handle invalid targetAmount gracefully', async () => {
+      // Create CheckoutCart first
+      const cart = new CheckoutCart({
+        checkoutId: 'test-checkout-invalid',
+        email: 'test@example.com',
+        shopDomain: 'test-shop.myshopify.com',
+        totalPrice: 'invalid'
+      });
+      await cart.save();
+
       const goalData = {
         goalName: 'Test Goal',
-        targetAmount: 'invalid-number'
+        targetAmount: 'invalid-number',
+        checkoutCartId: cart._id.toString(),
+        shopDomain: 'test-shop.myshopify.com'
       };
 
       const response = await request(app)
@@ -2685,10 +2746,20 @@ describe('SavingsGoal Routes', () => {
     });
 
     it('should handle empty product object', async () => {
+      // Create CheckoutCart first
+      const cart = new CheckoutCart({
+        checkoutId: 'test-checkout-empty',
+        email: 'test@example.com',
+        shopDomain: 'test-shop.myshopify.com',
+        totalPrice: '100'
+      });
+      await cart.save();
+
       const goalData = {
         goalName: 'Test Goal',
         targetAmount: 100,
-        product: {}
+        checkoutCartId: cart._id.toString(),
+        shopDomain: 'test-shop.myshopify.com'
       };
 
       const response = await request(app)
@@ -2696,14 +2767,24 @@ describe('SavingsGoal Routes', () => {
         .send(goalData)
         .expect(201);
 
-      expect(response.body.product).toBeDefined();
+      expect(response.body.__t).toBe('ShopifySavingsGoal');
     });
 
     it('should handle null product', async () => {
+      // Create CheckoutCart first
+      const cart = new CheckoutCart({
+        checkoutId: 'test-checkout-null',
+        email: 'test@example.com',
+        shopDomain: 'test-shop.myshopify.com',
+        totalPrice: '100'
+      });
+      await cart.save();
+
       const goalData = {
         goalName: 'Test Goal',
         targetAmount: 100,
-        product: null
+        checkoutCartId: cart._id.toString(),
+        shopDomain: 'test-shop.myshopify.com'
       };
 
       const response = await request(app)
@@ -2711,14 +2792,24 @@ describe('SavingsGoal Routes', () => {
         .send(goalData)
         .expect(201);
 
-      expect(response.body.product).toBeDefined();
+      expect(response.body.__t).toBe('ShopifySavingsGoal');
     });
 
     it('should handle undefined product', async () => {
+      // Create CheckoutCart first
+      const cart = new CheckoutCart({
+        checkoutId: 'test-checkout-undefined',
+        email: 'test@example.com',
+        shopDomain: 'test-shop.myshopify.com',
+        totalPrice: '100'
+      });
+      await cart.save();
+
       const goalData = {
         goalName: 'Test Goal',
         targetAmount: 100,
-        product: undefined
+        checkoutCartId: cart._id.toString(),
+        shopDomain: 'test-shop.myshopify.com'
       };
 
       const response = await request(app)
@@ -2726,7 +2817,7 @@ describe('SavingsGoal Routes', () => {
         .send(goalData)
         .expect(201);
 
-      expect(response.body.product).toBeDefined();
+      expect(response.body.__t).toBe('ShopifySavingsGoal');
     });
   });
 
@@ -2975,8 +3066,11 @@ describe('SavingsGoal Routes', () => {
       beforeEach(async () => {
         const GuestSession = mongoose.model('GuestSession');
         const User = mongoose.model('User');
+        const EmailToken = require('../../models/EmailToken');
         await GuestSession.deleteMany({});
         await User.deleteMany({ email: 'test@example.com' });
+        await EmailToken.deleteMany({});
+        await CheckoutCart.deleteMany({});
         
         // Create a guest session with Plaid connected for testing using the existing model
         await new GuestSession({
@@ -3002,8 +3096,32 @@ describe('SavingsGoal Routes', () => {
       });
 
       it('should create guest savings goal successfully and persist schedule and Shopify identifiers', async () => {
+        // For guest checkout with Shopify, we need to use emailToken path
+        // Create EmailToken and CheckoutCart
+        const EmailToken = require('../../models/EmailToken');
+        const cart = new CheckoutCart({
+          checkoutId: 'test-checkout-guest',
+          email: 'test@example.com',
+          shopDomain: 'test-shop.myshopify.com',
+          totalPrice: '1000',
+          lineItems: [{
+            title: 'Test Product',
+            price: 1000,
+            quantity: 1
+          }]
+        });
+        await cart.save();
+
+        const emailToken = new EmailToken({
+          token: 'test-email-token-shopify',
+          email: 'test@example.com',
+          checkoutId: 'test-checkout-guest',
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000)
+        });
+        await emailToken.save();
+
         const goalData = {
-          guestToken: 'test-guest-token',
+          emailToken: 'test-email-token-shopify',
           goalName: 'Test Guest Goal',
           targetAmount: 1000,
           bankDetails: {
@@ -3011,16 +3129,6 @@ describe('SavingsGoal Routes', () => {
             bankAccountName: 'Primary Checking',
             bankLastFour: '1234',
             bankAccountType: 'checking'
-          },
-          product: {
-            name: 'Test Product',
-            price: 1000,
-            image: 'https://example.com/image.jpg',
-            // Shopify identifiers should pass through to nested product
-            shopifyProductId: 'gid://shopify/Product/1234567890',
-            shopifyVariantId: 'gid://shopify/ProductVariant/111',
-            handle: 'test-product',
-            // image also mapped
           }
         };
 
@@ -3031,7 +3139,6 @@ describe('SavingsGoal Routes', () => {
 
         expect(response.body.success).toBe(true);
         expect(response.body.savingsGoal).toBeDefined();
-        expect(response.body.savingsGoal.source).toBe('guest-checkout');
         expect(response.body.savingsGoal.userId).toBeDefined();
         expect(response.body.savingsGoal.userId).not.toBeNull();
 
@@ -3042,12 +3149,10 @@ describe('SavingsGoal Routes', () => {
 
         expect(response.body.savingsGoal.savingsAmount).toBeCloseTo(250);
 
-        // Shopify identifier assertions on product
-        expect(response.body.savingsGoal.product).toBeDefined();
-        expect(response.body.savingsGoal.product.shopifyProductId).toBe('gid://shopify/Product/1234567890');
-        expect(response.body.savingsGoal.product.shopifyVariantId).toBe('gid://shopify/ProductVariant/111');
-        expect(response.body.savingsGoal.product.handle).toBe('test-product');
-        expect(response.body.savingsGoal.product.image).toBe('https://example.com/image.jpg');
+        // Shopify goal assertions
+        expect(response.body.savingsGoal.__t).toBe('ShopifySavingsGoal');
+        expect(response.body.savingsGoal.checkoutCartId).toBeDefined();
+        expect(response.body.savingsGoal.shopDomain).toBe('test-shop.myshopify.com');
 
         // Bank details assertions
         expect(response.body.savingsGoal.bank).toBeDefined();
@@ -3153,27 +3258,34 @@ describe('SavingsGoal Routes', () => {
         });
         await merchant.save();
 
-        shopifyGoal = new SavingsGoal({
+        // Create CheckoutCart first
+        const cart = new CheckoutCart({
+          checkoutId: 'checkout-123',
+          email: 'test@example.com',
+          shopDomain: 'test-shop.myshopify.com',
+          totalPrice: '400.00',
+          lineItems: [{
+            productId: 'prod-123',
+            variantId: 'var-123',
+            quantity: 1,
+            presentmentTitle: 'Test Product',
+            price: '400.00'
+          }]
+        });
+        await cart.save();
+
+        shopifyGoal = new ShopifySavingsGoal({
           userId: testUser._id,
           goalName: 'Shopify Order',
           targetAmount: 400,
           currentAmount: 200,
           savingsAmount: 100,
-          plaidToken: 'plaid-token-123',
-          isPaused: false,
-          product: {
-            type: 'Shopify',
-            shopDomain: 'test-shop.myshopify.com',
-            checkoutId: 'checkout-123',
-            totalPrice: '400.00',
-            lineItems: [{
-              productId: 'prod-123',
-              variantId: 'var-123',
-              quantity: 1,
-              presentmentTitle: 'Test Product',
-              price: '400.00'
-            }]
+          checkoutCartId: cart._id,
+          shopDomain: 'test-shop.myshopify.com',
+          bank: {
+            plaidToken: 'plaid-token-123'
           },
+          isPaused: false,
           transfers: [
             {
               transferId: 'payment-1',
@@ -3255,13 +3367,25 @@ describe('SavingsGoal Routes', () => {
         });
         await otherUser.save();
 
-        const otherGoal = new SavingsGoal({
+        // Create CheckoutCart for Shopify goal
+        const otherCart = new CheckoutCart({
+          checkoutId: 'test-checkout-other',
+          email: 'other@example.com',
+          shopDomain: 'test-shop.myshopify.com',
+          totalPrice: '400'
+        });
+        await otherCart.save();
+
+        const otherGoal = new ShopifySavingsGoal({
           userId: otherUser._id,
           goalName: 'Other User Goal',
           targetAmount: 400,
           currentAmount: 200,
-          product: { type: 'Shopify', shopDomain: 'test-shop.myshopify.com' },
-          plaidToken: 'plaid-token-123'
+          checkoutCartId: otherCart._id,
+          shopDomain: 'test-shop.myshopify.com',
+          bank: {
+            plaidToken: 'plaid-token-123'
+          }
         });
         await otherGoal.save();
 
@@ -3274,13 +3398,15 @@ describe('SavingsGoal Routes', () => {
       });
 
       it('should return 400 when goal is not Shopify type', async () => {
-        const nonShopifyGoal = new SavingsGoal({
+        const nonShopifyGoal = new ManualSavingsGoal({
           userId: testUser._id,
           goalName: 'Regular Goal',
           targetAmount: 1000,
           currentAmount: 500,
-          product: { type: 'Google' },
-          plaidToken: 'plaid-token-123'
+          category: 'other',
+          bank: {
+            plaidToken: 'plaid-token-123'
+          }
         });
         await nonShopifyGoal.save();
 
@@ -3323,7 +3449,8 @@ describe('SavingsGoal Routes', () => {
       });
 
       it('should return 400 when no bank account linked', async () => {
-        shopifyGoal.plaidToken = null;
+        shopifyGoal.bank = shopifyGoal.bank || {};
+        shopifyGoal.bank.plaidToken = null;
         await shopifyGoal.save();
 
         const response = await request(app)
@@ -3336,19 +3463,18 @@ describe('SavingsGoal Routes', () => {
 
       it('should return 404 when merchant not found', async () => {
         // Store original shopDomain
-        const originalShopDomain = shopifyGoal.product.shopDomain;
+        const originalShopDomain = shopifyGoal.shopDomain;
         
         // Reload goal to ensure fresh state
         shopifyGoal = await SavingsGoal.findById(shopifyGoal._id);
         
-        // Change to a shopDomain that doesn't exist - need to markModified for Mixed types
-        shopifyGoal.product.shopDomain = 'nonexistent-shop-12345.myshopify.com';
-        shopifyGoal.markModified('product');
+        // Change to a shopDomain that doesn't exist
+        shopifyGoal.shopDomain = 'nonexistent-shop-12345.myshopify.com';
         await shopifyGoal.save();
 
         // Verify the goal was saved with the new shopDomain
         const reloadedGoal = await SavingsGoal.findById(shopifyGoal._id);
-        expect(reloadedGoal.product.shopDomain).toBe('nonexistent-shop-12345.myshopify.com');
+        expect(reloadedGoal.shopDomain).toBe('nonexistent-shop-12345.myshopify.com');
 
         // Verify no merchant exists with that shopDomain
         const foundMerchant = await ShopifyMerchant.findOne({ shopDomain: 'nonexistent-shop-12345.myshopify.com' });
@@ -3363,8 +3489,7 @@ describe('SavingsGoal Routes', () => {
         
         // Restore shopDomain for subsequent tests
         shopifyGoal = await SavingsGoal.findById(shopifyGoal._id);
-        shopifyGoal.product.shopDomain = originalShopDomain;
-        shopifyGoal.markModified('product');
+        shopifyGoal.shopDomain = originalShopDomain;
         await shopifyGoal.save();
       });
 

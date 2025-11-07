@@ -1,4 +1,5 @@
 const SavingsGoal = require('../models/SavingsGoal');
+const { ShopifySavingsGoal } = require('../models/SavingsGoal');
 const User = require('../models/User');
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const { Unit } = require('@unit-finance/unit-node-sdk');
@@ -13,12 +14,15 @@ if (!nodeAdapterInitialized) {
 let unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 
 async function createOrder(goal) {
-  const checkoutId = goal?.product?.checkoutId;
-  if (!checkoutId) {
-    throw new Error('Missing product.checkoutId on goal');
+  if (!(goal instanceof ShopifySavingsGoal)) {
+    throw new Error('createOrder can only be called on ShopifySavingsGoal');
   }
   
-  const cart = await CheckoutCart.findOne({checkoutId: checkoutId});
+  if (!goal.checkoutCartId) {
+    throw new Error('Missing checkoutCartId on ShopifySavingsGoal');
+  }
+  
+  const cart = await CheckoutCart.findById(goal.checkoutCartId);
 
   if (!cart) {
     throw new Error('Checkout cart not found');
@@ -37,7 +41,7 @@ async function createOrder(goal) {
     isTesting: true
   });
 
-  const { session } = await shopify.auth.clientCredentials({shop: goal.product.shopDomain});
+  const { session } = await shopify.auth.clientCredentials({shop: goal.shopDomain});
 
   const client = new shopify.clients.Graphql({ session, apiVersion: ApiVersion.July25});
 
@@ -60,7 +64,7 @@ async function createOrder(goal) {
     }
   `;
 
-  const lineItems = goal.product.lineItems.map(item => ({
+  const lineItems = cart.lineItems.map(item => ({
     variantId: `gid://shopify/ProductVariant/${item.variantId}`,
     quantity: item.quantity
   }));
@@ -146,7 +150,7 @@ async function handlePaymentClearing(eventData) {
   if (!setTransferStatus(goal, paymentId, 'pending')) return;
   await goal.save();
   console.log(`payment.clearing → pending for transfer ${paymentId}`);
-  if (goal.product && "Shopify" === goal.product?.type && goal.currentAmount >= goal.targetAmount) {
+  if ((goal instanceof ShopifySavingsGoal) && goal.currentAmount >= goal.targetAmount) {
     console.log(`Goal ${goal.goalName} has reached its target amount`);
     goal.isPaused = true;
     goal.savingsAmount = 0;
@@ -317,7 +321,7 @@ async function handleTransactionCreated(eventData) {
     } else if (goal.transfers[idx].type === 'credit') {
       goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - amt);
     }
-    if (goal.product && "Shopify" === goal.product?.type && goal.currentAmount >= goal.targetAmount) {
+    if ((goal instanceof ShopifySavingsGoal) && goal.currentAmount >= goal.targetAmount) {
       console.log(`Goal ${goal.goalName} has reached its target amount`);
       goal.isPaused = true;
       goal.savingsAmount = 0;

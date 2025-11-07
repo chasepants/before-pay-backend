@@ -15,6 +15,7 @@ const { Unit } = require('@unit-finance/unit-node-sdk');
 const { processScheduledPayments } = require('../../cron/process-payments');
 const User = require('../../models/User');
 const SavingsGoal = require('../../models/SavingsGoal');
+const { ManualSavingsGoal } = require('../../models/SavingsGoal');
 
 describe('process-payments', () => {
   let mongoServer;
@@ -60,12 +61,15 @@ describe('process-payments', () => {
       const today = new Date();
       const dayOfMonth = today.getUTCDate();
 
-      const savingsGoal = new SavingsGoal({
+      const savingsGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal',
         targetAmount: 1000.00,
         savingsAmount: 50.00,
-        plaidToken: 'test-plaid-token',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token'
+        },
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -116,12 +120,15 @@ describe('process-payments', () => {
       const daysOfWeek = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
       const dayOfWeek = daysOfWeek[today.getUTCDay()];
 
-      const savingsGoal = new SavingsGoal({
+      const savingsGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Test Goal 2',
         targetAmount: 500.00,
         savingsAmount: 25.00,
-        plaidToken: 'test-plaid-token-2',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token-2'
+        },
         schedule: {
           dayOfMonth: null,
           dayOfWeek: dayOfWeek
@@ -169,12 +176,15 @@ describe('process-payments', () => {
       tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
       const tomorrowDayOfMonth = tomorrow.getUTCDate();
 
-      const savingsGoal = new SavingsGoal({
+      const savingsGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Tomorrow Goal',
         targetAmount: 2000.00,
         savingsAmount: 100.00,
-        plaidToken: 'test-plaid-token',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token'
+        },
         schedule: {
           dayOfMonth: tomorrowDayOfMonth,
           dayOfWeek: null
@@ -204,12 +214,15 @@ describe('process-payments', () => {
       });
       await userWithoutUnit.save();
 
-      const savingsGoal = new SavingsGoal({
+      const savingsGoal = new ManualSavingsGoal({
         userId: userWithoutUnit._id,
         goalName: 'No Unit Goal',
         targetAmount: 1000.00,
         savingsAmount: 50.00,
-        plaidToken: 'test-plaid-token',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token'
+        },
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -230,12 +243,15 @@ describe('process-payments', () => {
       const today = new Date();
       const dayOfMonth = today.getUTCDate();
 
-      const savingsGoal = new SavingsGoal({
+      const savingsGoal = new ManualSavingsGoal({
         userId: new mongoose.Types.ObjectId(),
         goalName: 'Non-existent User Goal',
         targetAmount: 1000.00,
         savingsAmount: 50.00,
-        plaidToken: 'test-plaid-token',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token'
+        },
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -256,12 +272,15 @@ describe('process-payments', () => {
       const today = new Date();
       const dayOfMonth = today.getUTCDate();
 
-      const savingsGoal = new SavingsGoal({
+      const savingsGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Error Test Goal',
         targetAmount: 1000.00,
         savingsAmount: 50.00,
-        plaidToken: 'test-plaid-token',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token'
+        },
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -289,12 +308,15 @@ describe('process-payments', () => {
       const today = new Date();
       const dayOfMonth = today.getUTCDate();
 
-      const savingsGoal1 = new SavingsGoal({
+      const savingsGoal1 = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Multi Goal 1',
         targetAmount: 500.00,
         savingsAmount: 25.00,
-        plaidToken: 'test-plaid-token-1',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token-1'
+        },
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -302,12 +324,15 @@ describe('process-payments', () => {
         transfers: []
       });
 
-      const savingsGoal2 = new SavingsGoal({
+      const savingsGoal2 = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Multi Goal 2',
         targetAmount: 1500.00,
         savingsAmount: 75.00,
-        plaidToken: 'test-plaid-token-2',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token-2'
+        },
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -350,12 +375,15 @@ describe('process-payments', () => {
       const daysOfWeek = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
       const dayOfWeek = daysOfWeek[today.getUTCDay()];
 
-      const goalByMonth = new SavingsGoal({
+      const goalByMonth = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Month Goal',
         targetAmount: 600.00,
         savingsAmount: 30.00,
-        plaidToken: 'test-plaid-token-month',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token-month'
+        },
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -363,12 +391,15 @@ describe('process-payments', () => {
         transfers: []
       });
 
-      const goalByWeek = new SavingsGoal({
+      const goalByWeek = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Week Goal',
         targetAmount: 800.00,
         savingsAmount: 40.00,
-        plaidToken: 'test-plaid-token-week',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token-week'
+        },
         schedule: {
           dayOfMonth: null,
           dayOfWeek: dayOfWeek
@@ -402,12 +433,15 @@ describe('process-payments', () => {
       const today = new Date();
       const dayOfMonth = today.getUTCDate();
 
-      const pausedGoal = new SavingsGoal({
+      const pausedGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Paused Goal',
         targetAmount: 1000.00,
         savingsAmount: 50.00,
-        plaidToken: 'test-plaid-token',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token'
+        },
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -429,12 +463,15 @@ describe('process-payments', () => {
       const date = new Date('2025-09-27');
       const dayOfMonth = date.getUTCDate();
 
-      const savingsGoal = new SavingsGoal({
+      const savingsGoal = new ManualSavingsGoal({
         userId: testUser._id,
         goalName: 'Specific Date Goal',
         targetAmount: 1000.00,
         savingsAmount: 50.00,
-        plaidToken: 'test-plaid-token',
+        category: 'other',
+        bank: {
+          plaidToken: 'test-plaid-token'
+        },
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null

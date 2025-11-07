@@ -30,7 +30,7 @@ async function processScheduledInstallments(date = null) {
   console.log(`Finding installments for ${dayOfMonth} ${dayOfWeek}`);
 
   const savingsGoals = await SavingsGoal.find({
-    "product.type": "Shopify",
+    __t: "ShopifySavingsGoal",
     $or: [
       { "schedule.dayOfMonth": dayOfMonth },
       { "schedule.dayOfWeek": dayOfWeek }
@@ -51,9 +51,25 @@ async function processScheduledInstallments(date = null) {
         continue;
       }
 
-      const { savingsAmount, plaidToken, userId } = goal;
+      const { savingsAmount, userId } = goal;
+      const plaidToken = goal.bank?.plaidToken;
+      
+      if (!plaidToken) {
+        console.log(`Skipping goal ${goal._id}: no plaidToken`);
+        continue;
+      }
 
-      const merchant = await ShopifyMerchant.findOne({ shopifyShopId: "stashpay-2" });
+      const merchant = await ShopifyMerchant.findOne({ shopDomain: goal.shopDomain }); // cant this be goal.checkoutCart.shopDomain?
+
+      if (!merchant) {
+        console.warn("merchant not found");
+        continue;
+      }
+
+      if (!merchant.unitAccountId) {
+        console.log("Merchant onboarding not complete");
+        continue;
+      }
 
       const achPaymentRequest = {
         type: 'achPayment',

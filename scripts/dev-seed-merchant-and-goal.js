@@ -44,6 +44,7 @@ const { v4: uuidv4 } = require('uuid');
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const User = require('../models/User');
 const SavingsGoal = require('../models/SavingsGoal');
+const { ShopifySavingsGoal } = require('../models/SavingsGoal');
 const unitMerchantService = require('../services/unitMerchantService');
 const firebaseService = require('../services/firebaseService');
 const CheckoutCart = require('../models/CheckoutCart');
@@ -222,32 +223,40 @@ async function main() {
   await customerUser.save();
   console.log('Created customer User:', customerUser._id.toString());
 
-  // 5) Create a Shopify SavingsGoal linked to the customer's userId
-  const goal = new SavingsGoal({
+  // 5) Create CheckoutCart first (required for ShopifySavingsGoal)
+  const cart = new CheckoutCart({
+    checkoutId,
+    email: customerEmail,
+    shopDomain,
+    totalPrice,
+    customerFirstName: customerFirst,
+    customerLastName: customerLast,
+    customerId: 7736055464033,
+    lineItems: [
+      {
+        productId,
+        variantId,
+        quantity,
+        presentmentTitle: productTitle,
+        vendor,
+        price
+      }
+    ],
+    status: 'active'
+  });
+  await cart.save();
+  console.log('Created CheckoutCart:', cart.checkoutId);
+
+  // 6) Create a Shopify SavingsGoal linked to the customer's userId and CheckoutCart
+  const goal = new ShopifySavingsGoal({
     userId: customerUser._id,
     goalName: `Cart from ${shopifyShopId}`,
     description: 'Save for these items',
     targetAmount: Number(totalPrice),
     currentAmount: 0,
     savingsAmount: savingsPerInstallment,
-    category: 'other',
-    product: {
-      type: 'Shopify',
-      checkoutId,
-      shopDomain,
-      totalPrice,
-      customerId: 7736055464033,
-      lineItems: [
-        {
-          productId,
-          variantId,
-          quantity,
-          presentmentTitle: productTitle,
-          vendor,
-          price
-        }
-      ]
-    },
+    checkoutCartId: cart._id,
+    shopDomain,
     schedule: {
       startDate: new Date(),
       interval: 'Monthly',
@@ -257,32 +266,13 @@ async function main() {
       bankName,
       bankAccountName,
       bankLastFour,
-      bankAccountType: 'depository'
+      bankAccountType: 'depository',
+      plaidToken
     },
-    plaidToken,
-    isPaused: false,
-    source: 'guest-checkout',
-    aiInsights: []
+    isPaused: false
   });
-  // Mixed type requires marking modified when nested
-  goal.markModified('product');
   await goal.save();
   console.log('Created SavingsGoal:', goal._id.toString());
-
-  // 6) Create matching CheckoutCart so order creation flow can find it by checkoutId
-  const cart = new CheckoutCart({
-    checkoutId,
-    email: customerEmail,
-    shopDomain,
-    totalPrice,
-    customerFirstName: customerFirst,
-    customerLastName: customerLast,
-    customerId: goal.product.customerId,
-    lineItems: goal.product.lineItems,
-    status: 'active'
-  });
-  await cart.save();
-  console.log('Created CheckoutCart:', cart.checkoutId);
 
   console.log('\n=== Seed Complete ===');
   console.log('Merchant:', {

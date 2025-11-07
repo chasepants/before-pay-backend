@@ -408,14 +408,14 @@ router.get('/insights/:merchantId', verifyShopifySessionToken, async (req, res) 
     });
 
     const ongoingInstallments = await SavingsGoal.countDocuments({
-      'product.type': 'Shopify',
-      'product.shopDomain': shopDomain,
+      __t: 'ShopifySavingsGoal',
+      shopDomain: shopDomain,
       isPaused: false
     });
 
     const totalInstallments = await SavingsGoal.countDocuments({
-      'product.type': 'Shopify',
-      'product.shopDomain': shopDomain
+      __t: 'ShopifySavingsGoal',
+      shopDomain: shopDomain
     });
 
     const conversionRate = activeCheckouts + abandonedCheckouts > 0 

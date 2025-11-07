@@ -107,7 +107,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
   console.log('Plaid processor token:', processorToken);
 
   savingsGoal.savingsAmount = parseFloat(amount);
-  savingsGoal.plaidToken = processorToken;
+
   savingsGoal.schedule = {
     interval, 
     startDate: startTime,
@@ -118,6 +118,7 @@ router.post('/setup-savings', ensureAuthenticated, async (req, res) => {
     bankName: 'Unit Bank',
     bankLastFour: '****',
     bankAccountType: 'Unknown',
+    plaidToken: processorToken
   }
   await savingsGoal.save();
 
@@ -175,7 +176,7 @@ router.post('/transfer-back-batch', ensureAuthenticated, async (req, res) => {
     }
 
     // Choose destination bank (plaid token) – use first goal that has one, or require client param
-    const destPlaidToken = goals.find(g => !!g.plaidToken)?.plaidToken;
+    const destPlaidToken = goals.find(g => !!g.bank?.plaidToken)?.bank?.plaidToken;
     if (!destPlaidToken) return res.status(400).json({ error: 'No destination bank found for transfer back' });
     if (!req.user.unitAccountId) return res.status(400).json({ error: 'No Unit account on user' });
 

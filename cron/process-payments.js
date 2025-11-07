@@ -3,6 +3,7 @@ const { Unit } = require('@unit-finance/unit-node-sdk');
 require('dotenv').config();
 const User = require('../models/User');
 const SavingsGoal = require('../models/SavingsGoal');
+const { ShopifySavingsGoal, ManualSavingsGoal } = require('../models/SavingsGoal');
 
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 
@@ -45,11 +46,17 @@ async function processScheduledPayments(date = null) {
         continue;
       }
 
-      if (goal.product && goal.product.type == "Shopify") {
+      if (goal instanceof ShopifySavingsGoal) {
         continue;
       }
 
-      const { savingsAmount, plaidToken, userId } = goal;
+      const { savingsAmount, userId } = goal;
+      const plaidToken = goal.bank?.plaidToken;
+      
+      if (!plaidToken) {
+        console.log(`Skipping goal ${goal._id}: no plaidToken`);
+        continue;
+      }
       const user = await User.findById(userId);
       if (!user || !user.unitAccountId) continue;
 

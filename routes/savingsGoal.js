@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const SavingsGoal = require('../models/SavingsGoal');
+const { ManualSavingsGoal, ShopifySavingsGoal } = require('../models/SavingsGoal');
 const User = require('../models/User');
+const CheckoutCart = require('../models/CheckoutCart');
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
@@ -58,7 +60,19 @@ router.options('*', (req, res) => {
 router.get('/', ensureAuthenticated, async (req, res) => {
   try {
     const goals = await SavingsGoal.find({ userId: req.user._id });
-    res.json(goals);
+    
+    // For Shopify goals, fetch and attach checkout cart data
+    const goalsWithCarts = await Promise.all(goals.map(async (goal) => {
+      if (goal.__t === 'ShopifySavingsGoal' && goal.checkoutCartId) {
+        const cart = await CheckoutCart.findById(goal.checkoutCartId);
+        if (cart) {
+          goal.checkoutCartId = cart; // Replace ObjectId with full cart object
+        }
+      }
+      return goal;
+    }));
+    
+    res.json(goalsWithCarts);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch savings goals' });
   }
@@ -89,10 +103,22 @@ router.get('/merchant/:shopDomain', ensureAuthenticated, async (req, res) => {
     }
     
     // Find all savings goals for this shop
-    const goals = await SavingsGoal.find({ 'product.shopDomain': shopDomain }).populate('userId', 'firstName lastName email');
+    const goals = await SavingsGoal.find({ __t: 'ShopifySavingsGoal', shopDomain: shopDomain })
+      .populate('userId', 'firstName lastName email');
+    
+    // Fetch and attach checkout cart data for Shopify goals
+    const goalsWithCarts = await Promise.all(goals.map(async (goal) => {
+      if (goal.checkoutCartId) {
+        const cart = await CheckoutCart.findById(goal.checkoutCartId);
+        if (cart) {
+          goal.checkoutCartId = cart; // Replace ObjectId with full cart object
+        }
+      }
+      return goal;
+    }));
     
     // Calculate status for each goal
-    const goalsWithStatus = goals.map(goal => {
+    const goalsWithStatus = goalsWithCarts.map(goal => {
       const isCompleted = goal.currentAmount >= goal.targetAmount;
       const isOngoing = goal.currentAmount > 0 && goal.currentAmount < goal.targetAmount;
       const isNotStarted = goal.currentAmount === 0;
@@ -132,6 +158,15 @@ router.get('/:id', ensureAuthenticated, async (req, res) => {
   try {
     const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
     if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
+    
+    // If it's a Shopify goal, fetch and attach the checkout cart
+    if (goal.__t === 'ShopifySavingsGoal' && goal.checkoutCartId) {
+      const cart = await CheckoutCart.findById(goal.checkoutCartId);
+      if (cart) {
+        goal.checkoutCartId = cart; // Replace ObjectId with full cart object
+      }
+    }
+    
     res.json(goal);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch savings goal' });
@@ -140,18 +175,22 @@ router.get('/:id', ensureAuthenticated, async (req, res) => {
 
 router.post('/shopify', verifyShopifySessionToken, async (req, res) => {
   try {
-    const { goalName, description, targetAmount, product } = req.body;
+    const { goalName, description, targetAmount, checkoutCartId, shopDomain } = req.body;
 
     if (!goalName || !targetAmount) {
       return res.status(400).json({ error: 'Goal name and target amount are required' });
     }
 
-    const savingsGoal = new SavingsGoal({
+    if (!checkoutCartId || !shopDomain) {
+      return res.status(400).json({ error: 'checkoutCartId and shopDomain are required for Shopify goals' });
+    }
+
+    const savingsGoal = new ShopifySavingsGoal({
       goalName,
       description: description || '',
       targetAmount: parseFloat(targetAmount),
-      product: product || {},
-      source: 'shopify'
+      checkoutCartId,
+      shopDomain
     });
 
     await savingsGoal.save();
@@ -415,22 +454,31 @@ router.post('/create-guest-goal', async (req, res) => {
 
     let finalGoalName = goalName;
     let finalDescription = description || '';
-    let finalProduct = product || {};
+    let checkoutCartId = null;
+    let shopDomain = null;
 
     if (emailToken && checkoutData) {
       const shopName = checkoutData.shopDomain?.replace('.myshopify.com', '') || 'Store';
       finalGoalName = `Cart from ${shopName}`;
       finalDescription = 'Save for these items';
-  
-      finalProduct = {
-        type: 'Shopify',
-        checkoutId: checkoutData.checkoutId,
-        shopDomain: checkoutData.shopDomain,
-        currency: checkoutData.currency,
-        totalPrice: checkoutData.totalPrice,
-        customerId: checkoutData.customerId,
-        lineItems: checkoutData.lineItems
-      };
+      
+      // Find or create CheckoutCart
+      let cart = await CheckoutCart.findOne({ checkoutId: checkoutData.checkoutId });
+      if (!cart) {
+        cart = new CheckoutCart({
+          checkoutId: checkoutData.checkoutId,
+          email: checkoutData.email || emailTokenDoc.email,
+          shopDomain: checkoutData.shopDomain,
+          totalPrice: checkoutData.totalPrice,
+          customerFirstName: checkoutData.customerFirstName,
+          customerLastName: checkoutData.customerLastName,
+          customerId: checkoutData.customerId,
+          lineItems: checkoutData.lineItems || []
+        });
+        await cart.save();
+      }
+      checkoutCartId = cart._id;
+      shopDomain = checkoutData.shopDomain;
     }
 
     const plaidService = new PlaidService();
@@ -446,27 +494,58 @@ router.post('/create-guest-goal', async (req, res) => {
       return res.status(500).json({ error: 'Failed to create processor token for bank account' });
     }
 
-    const savingsGoal = new SavingsGoal({
-      goalName: finalGoalName,
-      description: finalDescription,
-      targetAmount: parseFloat(targetAmount),
-      savingsAmount: savingsAmount,
-      product: finalProduct,
-      userId: user._id,
-      plaidToken: processorToken,
-      source: 'guest-checkout',
-      bank: bankDetails ? {
-        bankName: bankDetails.bankName,
-        bankAccountName: bankDetails.bankAccountName,
-        bankLastFour: bankDetails.bankLastFour,
-        bankAccountType: bankDetails.bankAccountType
-      } : undefined,
-      schedule: {
-        startDate,
-        interval: 'Monthly',
-        dayOfMonth: startDate.getDate()
-      }
-    });
+    // Create appropriate goal type based on whether it's Shopify or manual
+    let savingsGoal;
+    if (checkoutCartId && shopDomain) {
+      // Shopify goal
+      savingsGoal = new ShopifySavingsGoal({
+        goalName: finalGoalName,
+        description: finalDescription,
+        targetAmount: parseFloat(targetAmount),
+        savingsAmount: savingsAmount,
+        checkoutCartId,
+        shopDomain,
+        userId: user._id,
+        bank: {
+          ...(bankDetails ? {
+            bankName: bankDetails.bankName,
+            bankAccountName: bankDetails.bankAccountName,
+            bankLastFour: bankDetails.bankLastFour,
+            bankAccountType: bankDetails.bankAccountType
+          } : {}),
+          plaidToken: processorToken
+        },
+        schedule: {
+          startDate,
+          interval: 'Monthly',
+          dayOfMonth: startDate.getDate()
+        }
+      });
+    } else {
+      // Manual goal
+      savingsGoal = new ManualSavingsGoal({
+        goalName: finalGoalName,
+        description: finalDescription,
+        targetAmount: parseFloat(targetAmount),
+        savingsAmount: savingsAmount,
+        category: 'other',
+        userId: user._id,
+        bank: {
+          ...(bankDetails ? {
+            bankName: bankDetails.bankName,
+            bankAccountName: bankDetails.bankAccountName,
+            bankLastFour: bankDetails.bankLastFour,
+            bankAccountType: bankDetails.bankAccountType
+          } : {}),
+          plaidToken: processorToken
+        },
+        schedule: {
+          startDate,
+          interval: 'Monthly',
+          dayOfMonth: startDate.getDate()
+        }
+      });
+    }
 
     await savingsGoal.save();
 
@@ -500,6 +579,7 @@ router.post('/', requireSavingsAccountUser, async (req, res) => {
       goalName,
       description,
       targetAmount,
+      category,
       productLink,
       title,
       price,
@@ -518,30 +598,38 @@ router.post('/', requireSavingsAccountUser, async (req, res) => {
       delivery
     } = req.body;
 
-    const goal = new SavingsGoal({
+    // Build Google Shopping data if provided
+    const googleShoppingData = (title || price || productLink) ? [{
+      productLink,
+      title,
+      price,
+      old_price,
+      extracted_price: extracted_price ? parseFloat(extracted_price) : undefined,
+      extracted_old_price: extracted_old_price ? parseFloat(extracted_old_price) : undefined,
+      product_id,
+      serpapi_product_api,
+      thumbnail,
+      source,
+      source_icon,
+      rating,
+      reviews,
+      badge,
+      tag,
+      delivery,
+      description
+    }].filter(item => Object.values(item).some(v => v !== undefined && v !== null)) : [];
+
+    const goal = new ManualSavingsGoal({
       userId: req.user._id,
       goalName: goalName || title,
-      targetAmount: targetAmount? parseFloat(targetAmount) : price,
+      description: description || '',
+      targetAmount: targetAmount ? parseFloat(targetAmount) : (price ? parseFloat(price) : 0),
       currentAmount: 0,
-      product: {
-        description,
-        productLink,
-        title,
-        price,
-        old_price,
-        extracted_price: extracted_price ? parseFloat(extracted_price) : undefined,
-        extracted_old_price: extracted_old_price ? parseFloat(extracted_old_price) : undefined,
-        product_id,
-        serpapi_product_api,
-        thumbnail,
-        source,
-        source_icon,
-        rating,
-        reviews,
-        badge,
-        tag,
-        delivery
-      }
+      category: category || 'other',
+      googleShoppingData,
+      manualProductLink: productLink,
+      manualTitle: title,
+      manualPrice: price
     });
     await goal.save();
     res.status(201).json(goal);
@@ -573,10 +661,7 @@ router.put('/:id', requireSavingsAccountUser, async (req, res) => {
     
     if (goalName !== undefined) goal.goalName = goalName;
     if (description !== undefined) {
-      goal.product = {
-        ...goal.product,
-        description
-      };
+      goal.description = description;
     }
     if (targetAmount !== undefined) {
       goal.targetAmount = parseFloat(targetAmount);
@@ -685,9 +770,10 @@ router.post('/:id/web-search', requireSavingsAccountUser, async (req, res) => {
       return res.status(404).json({ error: 'Savings goal not found' });
     }
 
-    if (!goal.product || Object.keys(goal.product).length === 0) {
+    // Web search is only available for manual goals
+    if (!(goal instanceof ManualSavingsGoal)) {
       return res.status(400).json({ 
-        error: 'Web search is only available for product-type savings goals' 
+        error: 'Web search is only available for manual savings goals' 
       });
     }
 
@@ -723,8 +809,13 @@ router.post('/:id/save-product', requireSavingsAccountUser, async (req, res) => 
     const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
     if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
 
-    goal.product = {
-      ...goal.product,
+    // Only manual goals can save product data
+    if (!(goal instanceof ManualSavingsGoal)) {
+      return res.status(400).json({ error: 'Product data can only be saved for manual savings goals' });
+    }
+
+    // Add or update Google Shopping data
+    const newProductData = {
       title: productData.title,
       price: productData.price,
       old_price: productData.old_price,
@@ -734,6 +825,13 @@ router.post('/:id/save-product', requireSavingsAccountUser, async (req, res) => 
       rating: productData.rating,
       reviews: productData.reviews_count
     };
+
+    // Replace first item or add new
+    if (goal.googleShoppingData && goal.googleShoppingData.length > 0) {
+      goal.googleShoppingData[0] = { ...goal.googleShoppingData[0], ...newProductData };
+    } else {
+      goal.googleShoppingData = [newProductData];
+    }
 
     await goal.save();
     res.json({ goal, message: 'Product saved successfully' });
@@ -759,7 +857,7 @@ router.post('/:savingsGoalId/refund', ensureAuthenticated, async (req, res) => {
     }
     
     // Verify it's a Shopify order
-    if (!goal.product || goal.product.type !== 'Shopify') {
+    if (!(goal instanceof ShopifySavingsGoal)) {
       return res.status(400).json({ error: 'Refunds are only available for Shopify orders.' });
     }
     
@@ -780,16 +878,16 @@ router.post('/:savingsGoalId/refund', ensureAuthenticated, async (req, res) => {
     }
     
     // Verify goal has bank account linked
-    if (!goal.plaidToken) {
+    if (!goal.bank?.plaidToken) {
       return res.status(400).json({ error: 'No bank account linked to this savings goal.' });
     }
     
     // Find merchant account via shopDomain
-    if (!goal.product.shopDomain) {
+    if (!goal.shopDomain) {
       return res.status(400).json({ error: 'Shop domain not found in savings goal.' });
     }
     
-    const merchant = await ShopifyMerchant.findOne({ shopDomain: goal.product.shopDomain });
+    const merchant = await ShopifyMerchant.findOne({ shopDomain: goal.shopDomain });
     if (!merchant) {
       return res.status(404).json({ error: 'Merchant not found for this shop.' });
     }
@@ -816,7 +914,7 @@ router.post('/:savingsGoalId/refund', ensureAuthenticated, async (req, res) => {
         amount: Math.round(refundAmount * 100), // Convert to cents
         direction: 'Credit',
         description: 'Refund for Shopify Order',
-        plaidProcessorToken: goal.plaidToken,
+        plaidProcessorToken: goal.bank.plaidToken,
         tags: { 
           savingsGoalId: goal._id.toString(), 
           userId: req.user._id.toString(), 
