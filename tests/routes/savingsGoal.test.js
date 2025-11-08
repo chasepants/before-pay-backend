@@ -3371,4 +3371,289 @@ describe('SavingsGoal Routes', () => {
       });
     });
   });
+
+  describe('PUT /:id/schedule', () => {
+    let testSavingsGoal;
+
+    beforeEach(async () => {
+      testSavingsGoal = new ManualSavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal',
+        targetAmount: 1000,
+        currentAmount: 0,
+        category: 'other'
+      });
+      await testSavingsGoal.save();
+    });
+
+    it('should successfully setup savings with weekly schedule', async () => {
+      mockExchangePublicToken.mockResolvedValue({
+        data: {
+          access_token: 'access-token-123',
+          item_id: 'item-123'
+        }
+      });
+
+      mockCreateProcessorToken.mockResolvedValue({
+        data: {
+          processor_token: 'processor-token-123'
+        }
+      });
+
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: { startTime: '2025-01-06T00:00:00.000Z', interval: 'Weekly' }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${testSavingsGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(mockExchangePublicToken).toHaveBeenCalledWith('public-token-123');
+      expect(mockCreateProcessorToken).toHaveBeenCalledWith('access-token-123', 'account-123');
+    });
+
+    it('should successfully setup savings with monthly schedule', async () => {
+      mockExchangePublicToken.mockResolvedValue({
+        data: {
+          access_token: 'access-token-123',
+          item_id: 'item-123'
+        }
+      });
+
+      mockCreateProcessorToken.mockResolvedValue({
+        data: {
+          processor_token: 'processor-token-123'
+        }
+      });
+
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: { startTime: '2025-01-15T00:00:00.000Z', interval: 'Monthly' }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${testSavingsGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
+    it('should return 400 when required fields are missing', async () => {
+      const requestBody = {
+        plaidAccountId: 'account-123',
+        amount: 100
+        // Missing schedule
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${testSavingsGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(400);
+
+      expect(response.body.error).toBe('plaidAccountId, amount, and schedule are required');
+    });
+
+    it('should return 400 when startTime and interval are missing', async () => {
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: {
+          startTime: '2025-01-06T00:00:00.000Z'
+          // Missing interval
+        }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${testSavingsGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(400);
+
+      expect(response.body.error).toBe('startTime and interval are required');
+    });
+
+    it('should return 400 when interval is invalid', async () => {
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: {
+          startTime: '2025-01-06T00:00:00.000Z',
+          interval: 'Daily' // Invalid interval
+        }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${testSavingsGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(400);
+
+      expect(response.body.error).toBe('interval must be Weekly or Monthly');
+    });
+
+    it('should return 400 when dayOfMonth is invalid', async () => {
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: {
+          startTime: '2025-01-30T00:00:00.000Z', // 30th (invalid for monthly)
+          interval: 'Monthly'
+        }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${testSavingsGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(400);
+
+      expect(response.body.error).toBe('dayOfMonth must be between 1-28 or -5 to -1');
+    });
+
+    it('should return 404 when savings goal not found', async () => {
+      const fakeGoalId = new mongoose.Types.ObjectId();
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: {
+          startTime: '2025-01-06T00:00:00.000Z',
+          interval: 'Weekly'
+        }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${fakeGoalId}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(404);
+
+      expect(response.body.error).toBe('Savings goal not found or unauthorized');
+    });
+
+    it('should return 404 when savings goal belongs to different user', async () => {
+      const otherUser = new User({
+        email: 'other@example.com',
+        firstName: 'Other',
+        lastName: 'User'
+      });
+      await otherUser.save();
+
+      const otherGoal = new ManualSavingsGoal({
+        userId: otherUser._id,
+        goalName: 'Other Goal',
+        targetAmount: 1000,
+        currentAmount: 0,
+        category: 'other'
+      });
+      await otherGoal.save();
+
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: {
+          startTime: '2025-01-06T00:00:00.000Z',
+          interval: 'Weekly'
+        }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${otherGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(404);
+
+      expect(response.body.error).toBe('Savings goal not found or unauthorized');
+    });
+
+    it('should return 500 when Plaid token exchange fails', async () => {
+      mockExchangePublicToken.mockRejectedValue(new Error('Plaid API error'));
+
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: {
+          startTime: '2025-01-06T00:00:00.000Z',
+          interval: 'Weekly'
+        }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${testSavingsGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(500);
+
+      expect(response.body.error).toContain('Failed to set up savings plan');
+    });
+
+    it('should return 500 when Plaid processor token creation fails', async () => {
+      mockExchangePublicToken.mockResolvedValue({
+        data: {
+          access_token: 'access-token-123',
+          item_id: 'item-123'
+        }
+      });
+
+      mockCreateProcessorToken.mockRejectedValue(new Error('Processor token creation failed'));
+
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: {
+          startTime: '2025-01-06T00:00:00.000Z',
+          interval: 'Weekly'
+        }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${testSavingsGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(500);
+
+      expect(response.body.error).toContain('Failed to set up savings plan');
+    });
+
+    it('should return 500 when database error occurs finding savings goal', async () => {
+      jest.spyOn(SavingsGoal, 'findById').mockImplementationOnce(() => {
+        throw new Error('Database error');
+      });
+
+      const requestBody = {
+        plaidAccessToken: 'public-token-123',
+        plaidAccountId: 'account-123',
+        amount: 100,
+        schedule: {
+          startTime: '2025-01-06T00:00:00.000Z',
+          interval: 'Weekly'
+        }
+      };
+
+      const response = await request(app)
+        .put(`/api/savings-goal/${testSavingsGoal._id}/schedule`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(requestBody)
+        .expect(500);
+
+      expect(response.body.error).toBe('We had an issue finding the savings item');
+    });
+  });
 });

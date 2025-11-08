@@ -715,4 +715,104 @@ router.post('/:id/refund', ensureAuthenticated, async (req, res) => {
   }
 });
 
+/**
+ * Setup savings schedule for a savings goal
+ * PUT /api/savings-goal/:id/schedule
+ */
+router.put('/:id/schedule', ensureAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  const { plaidAccessToken, plaidAccountId, amount, schedule } = req.body;
+  console.log('Request body:', req.body);
+
+  if (!plaidAccountId || !amount || !schedule) {
+    return res.status(400).json({ error: 'plaidAccountId, amount, and schedule are required' });
+  }
+
+  const { startTime, interval } = schedule;
+  if (!startTime || !interval) {
+    return res.status(400).json({ error: 'startTime and interval are required' });
+  }
+  if (interval !== 'Weekly' && interval !== 'Monthly') {
+    return res.status(400).json({ error: 'interval must be Weekly or Monthly' });
+  }
+
+  let dayOfWeek = false;
+  let dayOfMonth = false;
+
+  if ("Monthly" == interval) {
+    const date = new Date(startTime);
+    dayOfMonth = date.getDate();
+  }
+
+  if ("Weekly" == interval) {
+    const date = new Date(startTime);
+    date.setHours(date.getHours()+12); // const date was equal to 2025-08-11T00:00:00.000Z, for example, which is a Monday but was showing as a Sunday... I think because of UTC or time zones. Putting the date to 12 hours later helped get the correct day index.
+    console.log(date);
+    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    console.log(daysOfWeek);
+    dayOfWeek = daysOfWeek[date.getDay()];
+  }
+
+  if (dayOfMonth && (isNaN(parseInt(dayOfMonth)) || parseInt(dayOfMonth) < -5 || parseInt(dayOfMonth) > 28 || (parseInt(dayOfMonth) > 0 && parseInt(dayOfMonth) < 1))) {
+    return res.status(400).json({ error: 'dayOfMonth must be between 1-28 or -5 to -1' });
+  }
+  if (dayOfWeek && !['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].includes(dayOfWeek)) {
+    return res.status(400).json({ error: 'dayOfWeek must be a valid day (e.g., Monday)' });
+  }
+
+  try {
+    var savingsGoal = await SavingsGoal.findById(id);
+  } catch(error) {
+    return res.status(500).json({ error: 'We had an issue finding the savings item' });
+  }
+
+  if (!savingsGoal || savingsGoal.userId.toString() !== req.user._id.toString()) {
+    return res.status(404).json({ error: 'Savings goal not found or unauthorized' });
+  }
+
+  const plaidService = new PlaidService();
+
+  try {
+    var tokenResponse = await plaidService.exchangePublicToken(plaidAccessToken);
+    console.log('Plaid token exchange response:', tokenResponse.data);
+  } catch (error) {
+    console.error('Setup savings error:', error.response?.data || error.message, error.stack);
+    return res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
+  }
+
+  const accessToken = tokenResponse.data.access_token;
+  console.log('Plaid access token:', accessToken);
+
+  try {
+    var processorTokenResponse = await plaidService.createProcessorToken(accessToken, plaidAccountId);
+    console.log('Plaid processor token response:', processorTokenResponse.data);
+  } catch (error) {
+    console.error('Setup savings error:', error.response?.data || error.message, error.stack);
+    return res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
+  }
+
+  let processorToken = processorTokenResponse.data.processor_token;
+  console.log('Plaid processor token:', processorToken);
+
+  savingsGoal.savingsAmount = parseFloat(amount);
+
+  savingsGoal.schedule = {
+    interval, 
+    startDate: startTime,
+    dayOfMonth,
+    dayOfWeek
+  }
+  savingsGoal.bank = {
+    bankName: 'Unit Bank',
+    bankLastFour: '****',
+    bankAccountType: 'Unknown',
+    plaidToken: processorToken
+  }
+  await savingsGoal.save();
+
+  console.log(`Savings plan updated for goal ${id}`);
+
+  res.json({ success: true });
+});
+
 module.exports = router;

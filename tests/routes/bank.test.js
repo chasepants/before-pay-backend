@@ -104,364 +104,14 @@ describe('Bank Routes', () => {
     });
   });
 
-  describe('POST /setup-savings', () => {
-    let testSavingsGoal;
+  // Note: setup-savings route moved to /api/savings-goal/:id/schedule (PUT)
+  // Tests should be in savingsGoal.test.js
 
-    beforeEach(async () => {
-      testSavingsGoal = new SavingsGoal({
-        userId: testUser._id,
-        goalName: 'Test Goal',
-        targetAmount: 1000,
-        currentAmount: 0,
-        category: 'other'
-      });
-      await testSavingsGoal.save();
-    });
+  // Note: transaction-history route moved to /api/savings-goal/:id/transactions (GET)
+  // Tests should be in savingsGoal.test.js
 
-    it('should successfully setup savings with weekly schedule', async () => {
-      mockExchangePublicToken.mockResolvedValue({
-        data: {
-          access_token: 'access-token-123',
-          item_id: 'item-123'
-        }
-      });
-
-      mockCreateProcessorToken.mockResolvedValue({
-        data: {
-          processor_token: 'processor-token-123'
-        }
-      });
-
-      const requestBody = {
-        savingsGoalId: testSavingsGoal._id,
-        plaidAccessToken: 'public-token-123',
-        plaidAccountId: 'account-123',
-        amount: 100,
-        schedule: { startTime: '2025-01-06T00:00:00.000Z', interval: 'Weekly' }
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(200);
-
-      expect(response.body.success).toBe(true);
-      
-      expect(mockExchangePublicToken).toHaveBeenCalledWith('public-token-123');
-      expect(mockCreateProcessorToken).toHaveBeenCalledWith('access-token-123', 'account-123');
-    });
-
-    it('should successfully setup savings with monthly schedule', async () => {
-      mockExchangePublicToken.mockResolvedValue({
-        data: {
-          access_token: 'access-token-123',
-          item_id: 'item-123'
-        }
-      });
-
-      mockCreateProcessorToken.mockResolvedValue({
-        data: {
-          processor_token: 'processor-token-123'
-        }
-      });
-
-      const requestBody = {
-        savingsGoalId: testSavingsGoal._id,
-        plaidAccessToken: 'public-token-123',
-        plaidAccountId: 'account-123',
-        amount: 100,
-        schedule: { startTime: '2025-01-15T00:00:00.000Z', interval: 'Monthly' }
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(200);
-
-      expect(response.body.success).toBe(true);
-    });
-
-    it('should return 400 when required fields are missing', async () => {
-      const requestBody = {
-        savingsGoalId: testSavingsGoal._id,
-        plaidAccountId: 'account-123',
-        amount: 100
-        // Missing schedule
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(400);
-
-      expect(response.body.error).toBe('savingsGoalId, plaidAccountId, amount, and schedule are required');
-    });
-
-    it('should return 400 when startTime and interval are missing', async () => {
-      const requestBody = {
-        savingsGoalId: testSavingsGoal._id,
-        plaidAccessToken: 'public-token-123',
-        plaidAccountId: 'account-123',
-        amount: 100,
-        schedule: {
-          startTime: '2025-01-06T00:00:00.000Z'
-          // Missing interval
-        }
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(400);
-
-      expect(response.body.error).toBe('startTime and interval are required');
-    });
-
-    it('should return 400 when interval is invalid', async () => {
-      const requestBody = {
-        savingsGoalId: testSavingsGoal._id,
-        plaidAccessToken: 'public-token-123',
-        plaidAccountId: 'account-123',
-        amount: 100,
-        schedule: {
-          startTime: '2025-01-06T00:00:00.000Z',
-          interval: 'Daily' // Invalid interval
-        }
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(400);
-
-      expect(response.body.error).toBe('interval must be Weekly or Monthly');
-    });
-
-    it('should return 400 when dayOfMonth is invalid', async () => {
-      const requestBody = {
-        savingsGoalId: testSavingsGoal._id,
-        plaidAccessToken: 'public-token-123',
-        plaidAccountId: 'account-123',
-        amount: 100,
-        schedule: {
-          startTime: '2025-01-30T00:00:00.000Z', // 30th (invalid for monthly)
-          interval: 'Monthly'
-        }
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(400);
-
-      expect(response.body.error).toBe('dayOfMonth must be between 1-28 or -5 to -1');
-    });
-
-    it('should return 404 when savings goal not found', async () => {
-      const fakeGoalId = new mongoose.Types.ObjectId();
-      const requestBody = {
-        savingsGoalId: fakeGoalId,
-        plaidAccessToken: 'public-token-123',
-        plaidAccountId: 'account-123',
-        amount: 100,
-        schedule: {
-          startTime: '2025-01-06T00:00:00.000Z',
-          interval: 'Weekly'
-        }
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(404);
-
-      expect(response.body.error).toBe('Savings goal not found or unauthorized');
-    });
-
-    it('should return 404 when savings goal belongs to different user', async () => {
-      const otherUser = new User({
-        email: 'other@example.com',
-        firstName: 'Other',
-        lastName: 'User'
-      });
-      await otherUser.save();
-
-      const otherGoal = new SavingsGoal({
-        userId: otherUser._id,
-        goalName: 'Other Goal',
-        targetAmount: 1000,
-        currentAmount: 0,
-        category: 'other'
-      });
-      await otherGoal.save();
-
-      const requestBody = {
-        savingsGoalId: otherGoal._id,
-        plaidAccessToken: 'public-token-123',
-        plaidAccountId: 'account-123',
-        amount: 100,
-        schedule: {
-          startTime: '2025-01-06T00:00:00.000Z',
-          interval: 'Weekly'
-        }
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(404);
-
-      expect(response.body.error).toBe('Savings goal not found or unauthorized');
-    });
-
-    it('should return 500 when Plaid token exchange fails', async () => {
-      mockExchangePublicToken.mockRejectedValue(new Error('Plaid API error'));
-
-      const requestBody = {
-        savingsGoalId: testSavingsGoal._id,
-        plaidAccessToken: 'public-token-123',
-        plaidAccountId: 'account-123',
-        amount: 100,
-        schedule: {
-          startTime: '2025-01-06T00:00:00.000Z',
-          interval: 'Weekly'
-        }
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(500);
-
-      expect(response.body.error).toContain('Failed to set up savings plan');
-    });
-
-    it('should return 500 when Plaid processor token creation fails', async () => {
-      mockExchangePublicToken.mockResolvedValue({
-        data: {
-          access_token: 'access-token-123',
-          item_id: 'item-123'
-        }
-      });
-
-      mockCreateProcessorToken.mockRejectedValue(new Error('Processor token creation failed'));
-
-      const requestBody = {
-        savingsGoalId: testSavingsGoal._id,
-        plaidAccessToken: 'public-token-123',
-        plaidAccountId: 'account-123',
-        amount: 100,
-        schedule: {
-          startTime: '2025-01-06T00:00:00.000Z',
-          interval: 'Weekly'
-        }
-      };
-
-      const response = await request(app)
-        .post('/api/bank/setup-savings')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(requestBody)
-        .expect(500);
-
-      expect(response.body.error).toContain('Failed to set up savings plan');
-    });
-  });
-
-  describe('GET /transaction-history/:savingsGoalId', () => {
-    let testSavingsGoal;
-
-    beforeEach(async () => {
-      testSavingsGoal = new SavingsGoal({
-        userId: testUser._id,
-        goalName: 'Test Goal',
-        targetAmount: 1000,
-        currentAmount: 0,
-        category: 'other',
-        transfers: [
-          {
-            date: new Date('2025-01-01'),
-            amount: 100,
-            status: 'completed',
-            type: 'debit'
-          },
-          {
-            date: new Date('2025-01-02'),
-            amount: 50,
-            status: 'pending',
-            type: 'credit'
-          }
-        ]
-      });
-      await testSavingsGoal.save();
-    });
-
-    it('should return transaction history for savings goal', async () => {
-      const response = await request(app)
-        .get(`/api/bank/transaction-history/${testSavingsGoal._id}`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body.transactions).toHaveLength(2);
-      expect(response.body.transactions[0]).toEqual({
-        date: Math.floor(new Date('2025-01-01').getTime() / 1000),
-        amount: 100,
-        status: 'completed',
-        type: 'debit'
-      });
-      expect(response.body.transactions[1]).toEqual({
-        date: Math.floor(new Date('2025-01-02').getTime() / 1000),
-        amount: 50,
-        status: 'pending',
-        type: 'credit'
-      });
-    });
-
-    it('should return 404 when savings goal not found', async () => {
-      const fakeGoalId = new mongoose.Types.ObjectId();
-      
-      const response = await request(app)
-        .get(`/api/bank/transaction-history/${fakeGoalId}`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(404);
-
-      expect(response.body.error).toBe('Savings goal not found');
-    });
-
-    it('should return 401 when no token provided', async () => {
-      const response = await request(app)
-        .get(`/api/bank/transaction-history/${testSavingsGoal._id}`)
-        .expect(401);
-
-      expect(response.body.error).toBe('Unauthorized: No token provided');
-    });
-
-    it('should return 500 when database error occurs', async () => {
-      // Mock the findById method to throw an error
-      jest.spyOn(SavingsGoal, 'findById').mockImplementation(() => {
-        throw new Error('Database error');
-      });
-
-      const response = await request(app)
-        .get(`/api/bank/transaction-history/${testSavingsGoal._id}`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(500);
-
-      expect(response.body.error).toBe('Database error');
-    });
-  });
-
-  describe('POST /transfer-back-batch', () => {
+  describe('POST /transfers/batch', () => {
     let testSavingsGoal1, testSavingsGoal2;
-    let mockUnitService;
 
     beforeEach(async () => {
       const { ManualSavingsGoal } = require('../../models/SavingsGoal');
@@ -511,7 +161,7 @@ describe('Bank Routes', () => {
       };
 
       await request(app)
-        .post('/api/bank/transfer-back-batch')
+        .post('/api/bank/transfers/batch')
         .set('Authorization', `Bearer ${authToken}`)
         .send(requestBody)
         .expect(200);
@@ -548,7 +198,7 @@ describe('Bank Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/bank/transfer-back-batch')
+        .post('/api/bank/transfers/batch')
         .set('Authorization', `Bearer ${authToken}`)
         .send(requestBody)
         .expect(400);
@@ -563,7 +213,7 @@ describe('Bank Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/bank/transfer-back-batch')
+        .post('/api/bank/transfers/batch')
         .set('Authorization', `Bearer ${authToken}`)
         .send(requestBody)
         .expect(400);
@@ -581,7 +231,7 @@ describe('Bank Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/bank/transfer-back-batch')
+        .post('/api/bank/transfers/batch')
         .set('Authorization', `Bearer ${authToken}`)
         .send(requestBody)
         .expect(400);
@@ -598,7 +248,7 @@ describe('Bank Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/bank/transfer-back-batch')
+        .post('/api/bank/transfers/batch')
         .set('Authorization', `Bearer ${authToken}`)
         .send(requestBody)
         .expect(400);
@@ -615,7 +265,7 @@ describe('Bank Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/bank/transfer-back-batch')
+        .post('/api/bank/transfers/batch')
         .set('Authorization', `Bearer ${authToken}`)
         .send(requestBody)
         .expect(400);
@@ -638,7 +288,7 @@ describe('Bank Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/bank/transfer-back-batch')
+        .post('/api/bank/transfers/batch')
         .set('Authorization', `Bearer ${authToken}`)
         .send(requestBody)
         .expect(400);
@@ -658,7 +308,7 @@ describe('Bank Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/bank/transfer-back-batch')
+        .post('/api/bank/transfers/batch')
         .set('Authorization', `Bearer ${authToken}`)
         .send(requestBody)
         .expect(400);
@@ -677,7 +327,7 @@ describe('Bank Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/bank/transfer-back-batch')
+        .post('/api/bank/transfers/batch')
         .set('Authorization', `Bearer ${authToken}`)
         .send(requestBody)
         .expect(500);
