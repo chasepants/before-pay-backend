@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 require('dotenv').config();
-const { processScheduledInstallments } = require('./process-installments');
-const {processScheduledPayments} = require('./process-payments');
+const { processScheduledPayments } = require('./process-scheduled-payments');
 
 async function connectDB() {
   try {
@@ -28,15 +27,9 @@ async function simulateDailyPayments(simulationDate) {
   console.log('Cron job started at:', new Date().toISOString());
 
   try {
-    await processScheduledInstallments(simulationDate);
-    console.log('Installment simulation completed successfully');
-  } catch (error) {
-    console.error('Cron simulation for installations failed:', error);
-  } 
-
-  try {
+    // Use the unified processScheduledPayments which handles both manual and Shopify goals
     await processScheduledPayments(simulationDate);
-    console.log('Payments simulation completed successfully');
+    console.log('Payment simulation completed successfully');
   } catch (error) {
     console.error('Cron simulation for payments failed:', error);
   } 

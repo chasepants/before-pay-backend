@@ -45,6 +45,7 @@ const ShopifyMerchant = require('../models/ShopifyMerchant');
 const User = require('../models/User');
 const SavingsGoal = require('../models/SavingsGoal');
 const { ShopifySavingsGoal } = require('../models/SavingsGoal');
+const SavingsGoalService = require('../services/savingsGoalService');
 const unitMerchantService = require('../services/unitMerchantService');
 const firebaseService = require('../services/firebaseService');
 const CheckoutCart = require('../models/CheckoutCart');
@@ -247,7 +248,28 @@ async function main() {
   await cart.save();
   console.log('Created CheckoutCart:', cart.checkoutId);
 
-  // 6) Create a Shopify SavingsGoal linked to the customer's userId and CheckoutCart
+  // 6) Create PaymentAccount first (if plaidToken provided)
+  let paymentAccountId = null;
+  if (plaidToken) {
+    const savingsGoalService = new SavingsGoalService();
+    // Create a temporary goal object for the service method
+    const tempGoal = { userId: customerUser._id };
+    const bankAccountDetails = {
+      bankName,
+      bankAccountName,
+      bankLastFour,
+      bankAccountType: 'depository'
+    };
+    const paymentAccount = await savingsGoalService.findOrCreatePaymentAccount(
+      tempGoal,
+      plaidToken,
+      bankAccountDetails
+    );
+    paymentAccountId = paymentAccount._id;
+    console.log('Created PaymentAccount:', paymentAccountId.toString());
+  }
+
+  // 7) Create a Shopify SavingsGoal linked to the customer's userId and CheckoutCart
   const goal = new ShopifySavingsGoal({
     userId: customerUser._id,
     goalName: `Cart from ${shopifyShopId}`,
@@ -257,17 +279,11 @@ async function main() {
     savingsAmount: savingsPerInstallment,
     checkoutCartId: cart._id,
     shopDomain,
+    paymentAccountId, // Link to PaymentAccount if created
     schedule: {
       startDate: new Date(),
       interval: 'Monthly',
       dayOfMonth: new Date().getUTCDate()
-    },
-    bank: {
-      bankName,
-      bankAccountName,
-      bankLastFour,
-      bankAccountType: 'depository',
-      plaidToken
     },
     isPaused: false
   });

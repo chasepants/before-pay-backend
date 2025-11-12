@@ -1,28 +1,23 @@
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const SavingsGoal = require('../../models/SavingsGoal');
+const Payment = require('../../models/Payment');
+const PaymentAccount = require('../../models/PaymentAccount');
 const User = require('../../models/User');
 
-jest.mock('@unit-finance/unit-node-sdk', () => {
-  return {
-    Unit: jest.fn().mockImplementation(() => ({
-      payments: {
-        create: jest.fn().mockResolvedValue({
-          data: {
-            id: 'payment-123',
-            attributes: {
-              amount: 10000,
-              direction: 'Debit',
-              status: 'Pending'
-            }
-          }
-        })
-      }
-    }))
-  };
-});
+// Mock webhookService module
+const mockWebhookService = {
+  handlePaymentCreated: jest.fn(),
+  handlePaymentClearing: jest.fn(),
+  handlePaymentSent: jest.fn(),
+  handlePaymentRejected: jest.fn(),
+  handlePaymentReturned: jest.fn(),
+  handlePaymentCanceled: jest.fn(),
+  handleTransactionCreated: jest.fn(),
+  handleBatchTransferCompleted: jest.fn()
+};
 
-const { Unit } = require('@unit-finance/unit-node-sdk');
+jest.mock('../../services/webhookService', () => mockWebhookService);
 
 describe('Payment Webhooks', () => {
   let mongoServer;
@@ -40,38 +35,15 @@ describe('Payment Webhooks', () => {
   });
 
   beforeEach(async () => {
+    await Payment.deleteMany({});
+    await PaymentAccount.deleteMany({});
     await SavingsGoal.deleteMany({});
     await User.deleteMany({});
     jest.clearAllMocks();
-
-    mockUnit = new Unit('test-api-key', 'https://api.s.unit.sh');
   });
 
   describe('handlePaymentCreated', () => {
-    it('should update transfer status to pending', async () => {
-      const user = new User({
-        email: 'test@example.com',
-        unitCustomerId: 'customer-123',
-        unitAccountId: 'account-123'
-      });
-      await user.save();
-
-      const goal = new SavingsGoal({
-        userId: user._id,
-        goalName: 'Test Goal',
-        targetAmount: 1000,
-        currentAmount: 0,
-        savingsAmount: 100,
-        transfers: [{
-          transferId: 'payment-123',
-          amount: 100,
-          date: new Date(),
-          status: 'created',
-          type: 'debit'
-        }]
-      });
-      await goal.save();
-
+    it('should delegate to SavingsGoalService', async () => {
       const webhookHandlers = require('../../webhooks/index');
       const { handlePaymentCreated } = webhookHandlers;
 
@@ -87,62 +59,34 @@ describe('Payment Webhooks', () => {
 
       await handlePaymentCreated(eventData);
 
-      const updatedGoal = await SavingsGoal.findById(goal._id);
-      expect(updatedGoal.transfers[0].status).toBe('pending');
+      expect(mockWebhookService.handlePaymentCreated).toHaveBeenCalledWith(eventData);
     });
 
-    it('should handle payment not found', async () => {
+    it('should handle missing payment ID gracefully', async () => {
       const webhookHandlers = require('../../webhooks/index');
       const { handlePaymentCreated } = webhookHandlers;
 
       const eventData = {
-        relationships: {
-          payment: {
-            data: {
-              id: 'non-existent-payment'
-            }
-          }
-        }
+        relationships: {}
       };
 
       await expect(handlePaymentCreated(eventData)).resolves.toBeUndefined();
+      expect(mockWebhookService.handlePaymentCreated).toHaveBeenCalledWith(eventData);
     });
 
-    it('should handle missing payment ID', async () => {
+    it('should handle empty event data', async () => {
       const webhookHandlers = require('../../webhooks/index');
       const { handlePaymentCreated } = webhookHandlers;
 
       const eventData = {};
 
       await expect(handlePaymentCreated(eventData)).resolves.toBeUndefined();
+      expect(mockWebhookService.handlePaymentCreated).toHaveBeenCalledWith(eventData);
     });
   });
 
   describe('handlePaymentClearing', () => {
-    it('should update transfer status to pending', async () => {
-      const user = new User({
-        email: 'test@example.com',
-        unitCustomerId: 'customer-123',
-        unitAccountId: 'account-123'
-      });
-      await user.save();
-
-      const goal = new SavingsGoal({
-        userId: user._id,
-        goalName: 'Test Goal',
-        targetAmount: 1000,
-        currentAmount: 0,
-        savingsAmount: 100,
-        transfers: [{
-          transferId: 'payment-123',
-          amount: 100,
-          date: new Date(),
-          status: 'created',
-          type: 'debit'
-        }]
-      });
-      await goal.save();
-
+    it('should delegate to SavingsGoalService', async () => {
       const webhookHandlers = require('../../webhooks/index');
       const { handlePaymentClearing } = webhookHandlers;
 
@@ -158,36 +102,12 @@ describe('Payment Webhooks', () => {
 
       await handlePaymentClearing(eventData);
 
-      const updatedGoal = await SavingsGoal.findById(goal._id);
-      expect(updatedGoal.transfers[0].status).toBe('pending');
+      expect(mockWebhookService.handlePaymentClearing).toHaveBeenCalledWith(eventData);
     });
   });
 
   describe('handlePaymentSent', () => {
-    it('should update transfer status to pending', async () => {
-      const user = new User({
-        email: 'test@example.com',
-        unitCustomerId: 'customer-123',
-        unitAccountId: 'account-123'
-      });
-      await user.save();
-
-      const goal = new SavingsGoal({
-        userId: user._id,
-        goalName: 'Test Goal',
-        targetAmount: 1000,
-        currentAmount: 0,
-        savingsAmount: 100,
-        transfers: [{
-          transferId: 'payment-123',
-          amount: 100,
-          date: new Date(),
-          status: 'created',
-          type: 'debit'
-        }]
-      });
-      await goal.save();
-
+    it('should delegate to SavingsGoalService', async () => {
       const webhookHandlers = require('../../webhooks/index');
       const { handlePaymentSent } = webhookHandlers;
 
@@ -203,36 +123,12 @@ describe('Payment Webhooks', () => {
 
       await handlePaymentSent(eventData);
 
-      const updatedGoal = await SavingsGoal.findById(goal._id);
-      expect(updatedGoal.transfers[0].status).toBe('pending');
+      expect(mockWebhookService.handlePaymentSent).toHaveBeenCalledWith(eventData);
     });
   });
 
   describe('handlePaymentRejected', () => {
-    it('should update transfer status to failed', async () => {
-      const user = new User({
-        email: 'test@example.com',
-        unitCustomerId: 'customer-123',
-        unitAccountId: 'account-123'
-      });
-      await user.save();
-
-      const goal = new SavingsGoal({
-        userId: user._id,
-        goalName: 'Test Goal',
-        targetAmount: 1000,
-        currentAmount: 0,
-        savingsAmount: 100,
-        transfers: [{
-          transferId: 'payment-123',
-          amount: 100,
-          date: new Date(),
-          status: 'pending',
-          type: 'debit'
-        }]
-      });
-      await goal.save();
-
+    it('should delegate to SavingsGoalService with failed status', async () => {
       const webhookHandlers = require('../../webhooks/index');
       const { handlePaymentRejected } = webhookHandlers;
 
@@ -248,36 +144,12 @@ describe('Payment Webhooks', () => {
 
       await handlePaymentRejected(eventData);
 
-      const updatedGoal = await SavingsGoal.findById(goal._id);
-      expect(updatedGoal.transfers[0].status).toBe('failed');
+      expect(mockWebhookService.handlePaymentRejected).toHaveBeenCalledWith(eventData);
     });
   });
 
   describe('handlePaymentReturned', () => {
-    it('should update transfer status to failed', async () => {
-      const user = new User({
-        email: 'test@example.com',
-        unitCustomerId: 'customer-123',
-        unitAccountId: 'account-123'
-      });
-      await user.save();
-
-      const goal = new SavingsGoal({
-        userId: user._id,
-        goalName: 'Test Goal',
-        targetAmount: 1000,
-        currentAmount: 0,
-        savingsAmount: 100,
-        transfers: [{
-          transferId: 'payment-123',
-          amount: 100,
-          date: new Date(),
-          status: 'pending',
-          type: 'debit'
-        }]
-      });
-      await goal.save();
-
+    it('should delegate to SavingsGoalService with failed status', async () => {
       const webhookHandlers = require('../../webhooks/index');
       const { handlePaymentReturned } = webhookHandlers;
 
@@ -293,36 +165,12 @@ describe('Payment Webhooks', () => {
 
       await handlePaymentReturned(eventData);
 
-      const updatedGoal = await SavingsGoal.findById(goal._id);
-      expect(updatedGoal.transfers[0].status).toBe('failed');
+      expect(mockWebhookService.handlePaymentReturned).toHaveBeenCalledWith(eventData);
     });
   });
 
   describe('handlePaymentCanceled', () => {
-    it('should update transfer status to canceled', async () => {
-      const user = new User({
-        email: 'test@example.com',
-        unitCustomerId: 'customer-123',
-        unitAccountId: 'account-123'
-      });
-      await user.save();
-
-      const goal = new SavingsGoal({
-        userId: user._id,
-        goalName: 'Test Goal',
-        targetAmount: 1000,
-        currentAmount: 0,
-        savingsAmount: 100,
-        transfers: [{
-          transferId: 'payment-123',
-          amount: 100,
-          date: new Date(),
-          status: 'pending',
-          type: 'debit'
-        }]
-      });
-      await goal.save();
-
+    it('should delegate to SavingsGoalService with canceled status', async () => {
       const webhookHandlers = require('../../webhooks/index');
       const { handlePaymentCanceled } = webhookHandlers;
 
@@ -338,8 +186,7 @@ describe('Payment Webhooks', () => {
 
       await handlePaymentCanceled(eventData);
 
-      const updatedGoal = await SavingsGoal.findById(goal._id);
-      expect(updatedGoal.transfers[0].status).toBe('canceled');
+      expect(mockWebhookService.handlePaymentCanceled).toHaveBeenCalledWith(eventData);
     });
   });
 });

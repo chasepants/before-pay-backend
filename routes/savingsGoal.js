@@ -5,21 +5,16 @@ const { ManualSavingsGoal, ShopifySavingsGoal } = require('../models/SavingsGoal
 const User = require('../models/User');
 const CheckoutCart = require('../models/CheckoutCart');
 const ShopifyMerchant = require('../models/ShopifyMerchant');
-const jwt = require('jsonwebtoken');
-const axios = require('axios');
-const mongoose = require('mongoose');
-const { OpenAI } = require('openai');
+const PaymentAccount = require('../models/PaymentAccount');
 require('dotenv').config();
-const { generateImage, enhanceDescription } = require('../services/xaiService');
+const { generateImage } = require('../services/xaiService');
 const { searchProducts } = require('../services/webSearchService');
 const { ensureAuthenticated, requireSavingsAccountUser } = require('../middleware/auth');
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
-const emailService = require('../services/emailService');
 const PlaidService = require('../services/plaidService');
-const UnitService = require('../services/unitService');
 
-const VerificationCode = require('../models/VerificationCode');
 const GuestSession = require('../models/GuestSession');
+const SavingsGoalService = require('../services/savingsGoalService');
 
 router.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -48,14 +43,34 @@ router.get('/', ensureAuthenticated, async (req, res) => {
     const goals = await SavingsGoal.find({ userId: req.user._id });
     
     // For Shopify goals, fetch and attach checkout cart data
+    // For all goals, fetch and attach PaymentAccount data as 'bank' for backward compatibility
     const goalsWithCarts = await Promise.all(goals.map(async (goal) => {
+      // Convert to plain object to allow dynamic properties
+      const goalObj = goal.toObject();
+      
       if (goal.__t === 'ShopifySavingsGoal' && goal.checkoutCartId) {
         const cart = await CheckoutCart.findById(goal.checkoutCartId);
         if (cart) {
-          goal.checkoutCartId = cart; // Replace ObjectId with full cart object
+          goalObj.checkoutCartId = cart; // Replace ObjectId with full cart object
         }
       }
-      return goal;
+      
+      // Populate PaymentAccount and attach as 'bank' for backward compatibility
+      if (goal.paymentAccountId) {
+        const paymentAccount = await PaymentAccount.findById(goal.paymentAccountId);
+        if (paymentAccount) {
+          // Attach as 'bank' for backward compatibility with frontend
+          goalObj.bank = {
+            bankName: paymentAccount.bankName,
+            bankAccountName: paymentAccount.bankAccountName,
+            bankLastFour: paymentAccount.bankLastFour,
+            bankAccountType: paymentAccount.accountType,
+            plaidToken: paymentAccount.plaidProcessorToken // Keep for backward compatibility
+          };
+        }
+      }
+      
+      return goalObj;
     }));
     
     res.json(goalsWithCarts);
@@ -89,14 +104,34 @@ router.get('/merchant/:shopDomain', ensureAuthenticated, async (req, res) => {
       .populate('userId', 'firstName lastName email');
     
     // Fetch and attach checkout cart data for Shopify goals
+    // Also populate PaymentAccount and attach as 'bank' for backward compatibility
     const goalsWithCarts = await Promise.all(goals.map(async (goal) => {
+      // Convert to plain object to allow dynamic properties
+      const goalObj = goal.toObject();
+      
       if (goal.checkoutCartId) {
         const cart = await CheckoutCart.findById(goal.checkoutCartId);
         if (cart) {
-          goal.checkoutCartId = cart; // Replace ObjectId with full cart object
+          goalObj.checkoutCartId = cart; // Replace ObjectId with full cart object
         }
       }
-      return goal;
+      
+      // Populate PaymentAccount and attach as 'bank' for backward compatibility
+      if (goal.paymentAccountId) {
+        const paymentAccount = await PaymentAccount.findById(goal.paymentAccountId);
+        if (paymentAccount) {
+          // Attach as 'bank' for backward compatibility with frontend
+          goalObj.bank = {
+            bankName: paymentAccount.bankName,
+            bankAccountName: paymentAccount.bankAccountName,
+            bankLastFour: paymentAccount.bankLastFour,
+            bankAccountType: paymentAccount.accountType,
+            plaidToken: paymentAccount.plaidProcessorToken // Keep for backward compatibility
+          };
+        }
+      }
+      
+      return goalObj;
     }));
     
     // Calculate status for each goal
@@ -125,15 +160,33 @@ router.get('/:id', ensureAuthenticated, async (req, res) => {
     const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
     if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
     
+    // Convert to plain object to allow dynamic properties
+    const goalObj = goal.toObject();
+    
     // If it's a Shopify goal, fetch and attach the checkout cart
     if (goal.__t === 'ShopifySavingsGoal' && goal.checkoutCartId) {
       const cart = await CheckoutCart.findById(goal.checkoutCartId);
       if (cart) {
-        goal.checkoutCartId = cart; // Replace ObjectId with full cart object
+        goalObj.checkoutCartId = cart; // Replace ObjectId with full cart object
       }
     }
     
-    res.json(goal);
+    // Populate PaymentAccount and attach as 'bank' for backward compatibility
+    if (goal.paymentAccountId) {
+      const paymentAccount = await PaymentAccount.findById(goal.paymentAccountId);
+      if (paymentAccount) {
+        // Attach as 'bank' for backward compatibility with frontend
+        goalObj.bank = {
+          bankName: paymentAccount.bankName,
+          bankAccountName: paymentAccount.bankAccountName,
+          bankLastFour: paymentAccount.bankLastFour,
+          bankAccountType: paymentAccount.accountType,
+          plaidToken: paymentAccount.plaidProcessorToken // Keep for backward compatibility
+        };
+      }
+    }
+    
+    res.json(goalObj);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch savings goal' });
   }
@@ -228,14 +281,19 @@ router.post('/guest', async (req, res) => {
         return res.status(401).json({ error: 'No Plaid account linked. Please link your bank account first.' });
       }
       
-      var checkoutData = await CheckoutCart.findOne({ 
-        checkoutId: emailTokenDoc.checkoutId,
-        email: emailTokenDoc.email 
-      });
-      
-      if (!checkoutData) {
-        return res.status(404).json({ error: 'Checkout data not found' });
+      // Checkout data is optional - only look for it if checkoutId exists on the email token
+      var checkoutData = null;
+      if (emailTokenDoc.checkoutId) {
+        checkoutData = await CheckoutCart.findOne({ 
+          checkoutId: emailTokenDoc.checkoutId,
+          email: emailTokenDoc.email 
+        });
+        // If checkoutId exists but checkout data not found, that's an error
+        if (!checkoutData) {
+          return res.status(404).json({ error: 'Checkout data not found' });
+        }
       }
+      // If no checkoutId, checkoutData will be null and we'll create a manual goal
     }
     
     const savingsAmount = parseFloat(targetAmount) / 4;
@@ -289,6 +347,15 @@ router.post('/guest', async (req, res) => {
       return res.status(500).json({ error: 'Failed to create processor token for bank account' });
     }
 
+    // Create PaymentAccount first
+    const savingsGoalService = new SavingsGoalService();
+    const paymentAccount = await savingsGoalService.findOrCreatePaymentAccount(
+      { userId: user._id }, // Temporary goal object for service method
+      processorToken,
+      bankDetails
+    );
+    console.log('PaymentAccount created/found:', paymentAccount._id);
+
     // Create appropriate goal type based on whether it's Shopify or manual
     let savingsGoal;
     if (checkoutCartId && shopDomain) {
@@ -301,15 +368,7 @@ router.post('/guest', async (req, res) => {
         checkoutCartId,
         shopDomain,
         userId: user._id,
-        bank: {
-          ...(bankDetails ? {
-            bankName: bankDetails.bankName,
-            bankAccountName: bankDetails.bankAccountName,
-            bankLastFour: bankDetails.bankLastFour,
-            bankAccountType: bankDetails.bankAccountType
-          } : {}),
-          plaidToken: processorToken
-        },
+        paymentAccountId: paymentAccount._id,
         schedule: {
           startDate,
           interval: 'Monthly',
@@ -325,15 +384,7 @@ router.post('/guest', async (req, res) => {
         savingsAmount: savingsAmount,
         category: 'other',
         userId: user._id,
-        bank: {
-          ...(bankDetails ? {
-            bankName: bankDetails.bankName,
-            bankAccountName: bankDetails.bankAccountName,
-            bankLastFour: bankDetails.bankLastFour,
-            bankAccountType: bankDetails.bankAccountType
-          } : {}),
-          plaidToken: processorToken
-        },
+        paymentAccountId: paymentAccount._id,
         schedule: {
           startDate,
           interval: 'Monthly',
@@ -636,9 +687,16 @@ router.post('/:id/refund', ensureAuthenticated, async (req, res) => {
       return res.status(400).json({ error: 'No amount available for refund.' });
     }
     
-    // Verify goal has bank account linked
-    if (!goal.bank?.plaidToken) {
-      return res.status(400).json({ error: 'No bank account linked to this savings goal.' });
+    // Verify goal has PaymentAccount linked
+    if (!goal.paymentAccountId) {
+      return res.status(400).json({ error: 'No payment account linked to this savings goal.' });
+    }
+    
+    // Get PaymentAccount to retrieve plaidProcessorToken
+    const PaymentAccount = require('../models/PaymentAccount');
+    const paymentAccount = await PaymentAccount.findById(goal.paymentAccountId);
+    if (!paymentAccount || !paymentAccount.plaidProcessorToken) {
+      return res.status(400).json({ error: 'Payment account not found or invalid.' });
     }
     
     // Find merchant account via shopDomain
@@ -655,56 +713,33 @@ router.post('/:id/refund', ensureAuthenticated, async (req, res) => {
       return res.status(400).json({ error: 'Merchant account not set up. Cannot process refund.' });
     }
     
-    // Create ACH credit payment from merchant account to user's bank
-    let unitService;
-    try {
-      unitService = new UnitService();
-    } catch (error) {
-      console.error('Failed to initialize UnitService:', error.message);
-      return res.status(500).json({ 
-        error: 'Payment service configuration error. Please contact support.' 
-      });
-    }
+    // Create refund payment using SavingsGoalService
+    const savingsGoalService = new SavingsGoalService();
     const refundAmount = goal.currentAmount;
     
-    const ach = await unitService.createPayment({
-      type: 'achPayment',
-      attributes: {
-        amount: Math.round(refundAmount * 100), // Convert to cents
-        direction: 'Credit',
-        description: 'Refund for Shopify Order',
-        plaidProcessorToken: goal.bank.plaidToken,
-        tags: { 
-          savingsGoalId: goal._id.toString(), 
-          userId: req.user._id.toString(), 
-          type: 'shopifyRefund' 
-        }
-      },
-      relationships: {
-        account: { data: { type: 'account', id: merchant.unitAccountId } }
-      }
-    });
-    
-    // Add refund transfer to goal
-    goal.transfers.push({
-      transferId: ach.data.id,
+    const payment = await savingsGoalService.createPaymentForGoal(goal, {
+      direction: 'Credit',
       amount: refundAmount,
-      date: new Date(),
-      status: 'pending',
-      type: 'credit'
+      paymentType: 'refund',
+      plaidProcessorToken: paymentAccount.plaidProcessorToken,
+      description: 'Refund for Shopify Order',
+      tags: {
+        savingsGoalId: goal._id.toString(),
+        userId: req.user._id.toString(),
+        type: 'shopifyRefund'
+      }
     });
     
     // Pause the goal and clear savings amount
     goal.isPaused = true;
     goal.savingsAmount = 0;
-    
     await goal.save();
     
     console.log(`Refund initiated for Shopify order ${savingsGoalId}: $${refundAmount}`);
     
     res.json({
       success: true,
-      paymentId: ach.data.id,
+      paymentId: payment.paymentId,
       amount: refundAmount,
       message: 'Refund initiated successfully. The savings plan has been paused.'
     });
@@ -770,49 +805,108 @@ router.put('/:id/schedule', ensureAuthenticated, async (req, res) => {
     return res.status(404).json({ error: 'Savings goal not found or unauthorized' });
   }
 
+  // If plaidAccessToken is provided, exchange it for an access token and get account details
+  // Otherwise, use existing PaymentAccount from the goal
   const plaidService = new PlaidService();
+  const savingsGoalService = new SavingsGoalService();
+  let processorToken;
+  let bankAccountDetails = null;
 
-  try {
-    var tokenResponse = await plaidService.exchangePublicToken(plaidAccessToken);
-    console.log('Plaid token exchange response:', tokenResponse.data);
-  } catch (error) {
-    console.error('Setup savings error:', error.response?.data || error.message, error.stack);
-    return res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
+  if (plaidAccessToken) {
+    try {
+      var tokenResponse = await plaidService.exchangePublicToken(plaidAccessToken);
+      console.log('Plaid token exchange response:', tokenResponse.data);
+      
+      const accessToken = tokenResponse.data.access_token;
+      console.log('Plaid access token:', accessToken);
+
+      // Get account details from Plaid
+      try {
+        const accountsResponse = await plaidService.getAccounts(accessToken);
+        const account = accountsResponse.data.accounts.find(acc => acc.account_id === plaidAccountId);
+        const institution = accountsResponse.data.item?.institution_id 
+          ? accountsResponse.data.institutions?.find(inst => inst.institution_id === accountsResponse.data.item.institution_id)
+          : null;
+        
+        if (account) {
+          bankAccountDetails = {
+            bankName: institution?.name || account.official_name || account.name || 'Unknown Bank',
+            bankAccountName: account.name || account.official_name || 'Bank Account',
+            bankLastFour: account.mask || '****',
+            bankAccountType: account.type === 'depository' ? (account.subtype === 'savings' ? 'savings' : 'checking') : 'checking'
+          };
+        }
+      } catch (error) {
+        console.warn('Failed to get account details from Plaid:', error.message);
+        // Continue without account details - we'll use defaults
+      }
+
+      try {
+        var processorTokenResponse = await plaidService.createProcessorToken(accessToken, plaidAccountId);
+        console.log('Plaid processor token response:', processorTokenResponse.data);
+        processorToken = processorTokenResponse.data.processor_token;
+      } catch (error) {
+        console.error('Setup savings error:', error.response?.data || error.message, error.stack);
+        return res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
+      }
+    } catch (error) {
+      console.error('Setup savings error:', error.response?.data || error.message, error.stack);
+      return res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
+    }
+  } else {
+    // Use existing PaymentAccount
+    if (!savingsGoal.paymentAccountId) {
+      return res.status(400).json({ error: 'No payment account linked. Please link a bank account first.' });
+    }
+    
+    const PaymentAccount = require('../models/PaymentAccount');
+    const existingPaymentAccount = await PaymentAccount.findById(savingsGoal.paymentAccountId);
+    if (!existingPaymentAccount || !existingPaymentAccount.plaidProcessorToken) {
+      return res.status(400).json({ error: 'Payment account not found or invalid.' });
+    }
+    
+    // PaymentAccount already exists and is valid, just update schedule
+    savingsGoal.savingsAmount = parseFloat(amount);
+    savingsGoal.schedule = {
+      interval, 
+      startDate: startTime,
+      dayOfMonth,
+      dayOfWeek
+    }
+    
+    await savingsGoal.save();
+    
+    console.log(`Savings plan updated for goal ${id} (using existing PaymentAccount)`);
+    
+    return res.json({ success: true });
   }
 
-  const accessToken = tokenResponse.data.access_token;
-  console.log('Plaid access token:', accessToken);
-
-  try {
-    var processorTokenResponse = await plaidService.createProcessorToken(accessToken, plaidAccountId);
-    console.log('Plaid processor token response:', processorTokenResponse.data);
-  } catch (error) {
-    console.error('Setup savings error:', error.response?.data || error.message, error.stack);
-    return res.status(500).json({ error: 'Failed to set up savings plan: ' + (error.response?.data?.message || error.message) });
-  }
-
-  let processorToken = processorTokenResponse.data.processor_token;
+  // If we get here, plaidAccessToken was provided
   console.log('Plaid processor token:', processorToken);
 
-  savingsGoal.savingsAmount = parseFloat(amount);
+  // Create or find PaymentAccount using SavingsGoalService
+  const paymentAccount = await savingsGoalService.findOrCreatePaymentAccount(
+    savingsGoal,
+    processorToken,
+    bankAccountDetails
+  );
+  console.log('PaymentAccount created/found:', paymentAccount._id);
 
+  // Update savings goal with PaymentAccount reference and schedule
+  savingsGoal.paymentAccountId = paymentAccount._id;
+  savingsGoal.savingsAmount = parseFloat(amount);
   savingsGoal.schedule = {
     interval, 
     startDate: startTime,
     dayOfMonth,
     dayOfWeek
   }
-  savingsGoal.bank = {
-    bankName: 'Unit Bank',
-    bankLastFour: '****',
-    bankAccountType: 'Unknown',
-    plaidToken: processorToken
-  }
+  
   await savingsGoal.save();
 
   console.log(`Savings plan updated for goal ${id}`);
 
-  res.json({ success: true });
+  return res.json({ success: true });
 });
 
 module.exports = router;

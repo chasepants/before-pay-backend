@@ -105,12 +105,15 @@ router.post('/verify-firebase-token', async (req, res) => {
       message: 'Authentication successful',
       token: token, // Return JWT token instead of Firebase ID token
       user: {
-        id: user._id,
+        _id: user._id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
         status: user.status,
-        userType: user.userType
+        userType: user.userType,
+        unitCustomerId: user.unitCustomerId,
+        unitAccountId: user.unitAccountId,
+        unitApplicationId: user.unitApplicationId
       }
     });
 

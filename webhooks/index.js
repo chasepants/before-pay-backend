@@ -1,4 +1,3 @@
-const SavingsGoal = require('../models/SavingsGoal');
 const { ShopifySavingsGoal } = require('../models/SavingsGoal');
 const User = require('../models/User');
 const ShopifyMerchant = require('../models/ShopifyMerchant');
@@ -7,6 +6,7 @@ const axios = require('axios');
 const CheckoutCart = require('../models/CheckoutCart');
 const { nodeAdapterInitialized } = require('@shopify/shopify-api/adapters/node');
 const { shopifyApi, ApiVersion } = require('@shopify/shopify-api');
+const webhookService = require('../services/webhookService');
 if (!nodeAdapterInitialized) {
   throw new Error('Failed to initialize Node.js adapter');
 }
@@ -120,220 +120,32 @@ async function approveTestUserApplication(applicationId) {
   );
 }
 
-async function findGoalByPaymentId(paymentId) {
-  if (!paymentId) return null;
-  return SavingsGoal.findOne({ 'transfers.transferId': paymentId });
-}
-
-function setTransferStatus(goal, paymentId, status) {
-  const idx = goal.transfers.findIndex(t => t.transferId === paymentId);
-  if (idx === -1) return false;
-  goal.transfers[idx].status = status;
-  return true;
-}
-
 async function handlePaymentCreated(eventData) {
-  const paymentId = eventData.relationships?.payment?.data?.id;
-  if (!paymentId) return;
-  const goal = await findGoalByPaymentId(paymentId);
-  if (!goal) return;
-  if (!setTransferStatus(goal, paymentId, 'pending')) return;
-  await goal.save();
-  console.log(`payment.created → pending for transfer ${paymentId}`);
+  await webhookService.handlePaymentCreated(eventData);
 }
 
 async function handlePaymentClearing(eventData) {
-  const paymentId = eventData.relationships?.payment?.data?.id;
-  if (!paymentId) return;
-  const goal = await findGoalByPaymentId(paymentId);
-  if (!goal) return;
-  if (!setTransferStatus(goal, paymentId, 'pending')) return;
-  await goal.save();
-  console.log(`payment.clearing → pending for transfer ${paymentId}`);
-  if ((goal instanceof ShopifySavingsGoal) && goal.currentAmount >= goal.targetAmount) {
-    console.log(`Goal ${goal.goalName} has reached its target amount`);
-    goal.isPaused = true;
-    goal.savingsAmount = 0;
-    await goal.save();
-  }
+  await webhookService.handlePaymentClearing(eventData);
 }
 
 async function handlePaymentSent(eventData) {
-  const paymentId = eventData.relationships?.payment?.data?.id;
-  if (!paymentId) return;
-  const goal = await findGoalByPaymentId(paymentId);
-  if (!goal) return;
-  if (!setTransferStatus(goal, paymentId, 'pending')) return;
-  await goal.save();
-  console.log(`payment.sent → pending for transfer ${paymentId}`);
+  await webhookService.handlePaymentSent(eventData);
 }
 
 async function handlePaymentRejected(eventData) {
-  const paymentId = eventData.relationships?.payment?.data?.id;
-  if (!paymentId) return;
-  const goal = await findGoalByPaymentId(paymentId);
-  if (!goal) return;
-  if (!setTransferStatus(goal, paymentId, 'failed')) return;
-  await goal.save();
-  console.log(`payment.rejected → failed for transfer ${paymentId}`);
+  await webhookService.handlePaymentRejected(eventData);
 }
 
 async function handlePaymentReturned(eventData) {
-  const paymentId = eventData.relationships?.payment?.data?.id;
-  if (!paymentId) return;
-  const goal = await findGoalByPaymentId(paymentId);
-  if (!goal) return;
-  if (!setTransferStatus(goal, paymentId, 'failed')) return;
-  await goal.save();
-  console.log(`payment.returned → failed for transfer ${paymentId}`);
+  await webhookService.handlePaymentReturned(eventData);
 }
 
 async function handlePaymentCanceled(eventData) {
-  const paymentId = eventData.relationships?.payment?.data?.id;
-  if (!paymentId) return;
-  const goal = await findGoalByPaymentId(paymentId);
-  if (!goal) return;
-  if (!setTransferStatus(goal, paymentId, 'canceled')) return;
-  await goal.save();
-  console.log(`payment.canceled → canceled for transfer ${paymentId}`);
+  await webhookService.handlePaymentCanceled(eventData);
 }
 
 async function handleTransactionCreated(eventData) {
-  const tags = eventData.attributes?.tags || {};
-  const kind = tags.kind;
-  const transactionId = eventData.relationships?.transaction?.data?.id;
-  
-  console.log('Transaction created webhook:', { kind, transactionId });
-  
-  if (kind === 'transferBackBatch') {
-    const batchId = tags.batchId;
-    if (!batchId) return;
-
-    const allGoals = await SavingsGoal.find({});
-    const goalsWithBatch = allGoals.filter(g => g.transfers.some(t => t.batchId === batchId));
-    console.log(`Total goals in DB: ${allGoals.length}`);
-    console.log(`Goals with batchId ${batchId}: ${goalsWithBatch.length}`);
-    goalsWithBatch.forEach(g => {
-      console.log(`Goal ${g._id} (${g.goalName}) has ${g.transfers.filter(t => t.batchId === batchId).length} transfers with batchId ${batchId}`);
-    });
-
-    const goals = await SavingsGoal.find({ 'transfers.batchId': batchId });
-    console.log(`Found ${goals.length} goals for batch ${batchId}`);
-
-    const goalsAlt = await SavingsGoal.find({
-      transfers: {
-        $elemMatch: {
-          batchId: batchId,
-          type: 'credit',
-          status: { $ne: 'completed' }
-        }
-      }
-    });
-    console.log(`Alternative query found ${goalsAlt.length} goals`);
-    
-    for (const goal of goals) {
-      console.log(`Processing goal ${goal._id} (${goal.goalName})`);
-      for (let i = 0; i < goal.transfers.length; i++) {
-        const transfer = goal.transfers[i];
-        if (!(transfer.batchId === batchId && transfer.type === 'credit' && transfer.status !== 'completed')) {
-          console.log(`skipping ${transfer._id}`)
-          continue;
-        }
-
-        console.log(`Updating transfer ${transfer._id} in goal ${goal._id}`);
-        
-        const update_transaction_id = await SavingsGoal.findOneAndUpdate(
-          { 
-            _id: goal._id,
-            'transfers._id': transfer._id 
-          },
-          { 
-            $set: { 
-              'transfers.$.transactionId': transactionId,
-            }
-          },
-          { new: true }
-        );
-        
-        
-        if (update_transaction_id) {
-          console.log(`Successfully updated transfer ${transfer._id} transaction id in goal ${goal._id}`);
-        } else {
-          console.log(`Failed to update transfer ${transfer._id} transaction id in goal ${goal._id}`);
-        }
-
-        const update_status_and_current_amount = await SavingsGoal.findOneAndUpdate(
-          { 
-            _id: goal._id,
-            'transfers._id': transfer._id 
-          },
-          { 
-            $set: { 
-              'transfers.$.status': 'completed',
-            },
-            $inc: { currentAmount: -transfer.amount }
-          },
-          { new: true }
-        );
-
-        if (update_status_and_current_amount) {
-          console.log(`Successfully updated transfer ${transfer._id} status and goal amount in goal ${goal._id}`);
-        } else {
-          console.log(`Failed to update transfer ${transfer._id} status and goal amount in goal ${goal._id}`);
-        }
-      }
-    }
-    
-    console.log(`transaction.created → completed batch ${batchId}, transactionId: ${transactionId}`);
-    return;
-  }
-
-  const paymentId = eventData.relationships?.payment?.data?.id;
-  if (!paymentId) return;
-  
-  const goal = await SavingsGoal.findOne({ 'transfers.transferId': paymentId });
-  if (!goal) {
-    console.log(`No goal found for payment ${paymentId}`);
-    return;
-  }
-  
-  const idx = goal.transfers.findIndex(t => t.transferId === paymentId);
-  if (idx === -1) {
-    console.log(`No transfer found for payment ${paymentId} in goal ${goal._id}`);
-    return;
-  }
-  
-  if (goal.transfers[idx].status !== 'completed') {
-    console.log(`Updating transfer ${goal.transfers[idx]._id} in goal ${goal._id}`);
-    goal.transfers[idx].status = 'completed';
-    goal.transfers[idx].transactionId = transactionId;
-    const amt = goal.transfers[idx].amount;
-    
-    // Special handling for Shopify refunds
-    if (tags.type === 'shopifyRefund' && goal.transfers[idx].type === 'credit') {
-      // For Shopify refunds, set currentAmount to 0 and ensure goal is paused
-      goal.currentAmount = 0;
-      goal.isPaused = true;
-      goal.savingsAmount = 0;
-      console.log(`Shopify refund completed for goal ${goal._id}: currentAmount set to 0, goal paused`);
-    } else if (goal.transfers[idx].type === 'debit') {
-      goal.currentAmount += amt;
-    } else if (goal.transfers[idx].type === 'credit') {
-      goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - amt);
-    }
-    if ((goal instanceof ShopifySavingsGoal) && goal.currentAmount >= goal.targetAmount) {
-      console.log(`Goal ${goal.goalName} has reached its target amount`);
-      goal.isPaused = true;
-      goal.savingsAmount = 0;
-      try {
-        await createOrder(goal);
-      } catch (error) {
-        console.log(error)
-      }
-    }
-    await goal.save();
-    console.log(`transaction.created → completed for transfer ${paymentId}, transactionId: ${transactionId}`);
-  }
+  await webhookService.handleTransactionCreated(eventData);
 }
 
 async function handleApplicationApproved(eventData) {

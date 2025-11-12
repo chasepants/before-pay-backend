@@ -3,6 +3,7 @@ const { Unit } = require('@unit-finance/unit-node-sdk');
 require('dotenv').config();
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const SavingsGoal = require('../models/SavingsGoal');
+const PaymentAccount = require('../models/PaymentAccount');
 
 const unit = new Unit(process.env.UNIT_API_KEY, 'https://api.s.unit.sh');
 
@@ -52,12 +53,20 @@ async function processScheduledInstallments(date = null) {
       }
 
       const { savingsAmount, userId } = goal;
-      const plaidToken = goal.bank?.plaidToken;
       
-      if (!plaidToken) {
-        console.log(`Skipping goal ${goal._id}: no plaidToken`);
+      // Get PaymentAccount to retrieve plaidProcessorToken
+      if (!goal.paymentAccountId) {
+        console.log(`Skipping goal ${goal._id}: no paymentAccountId`);
         continue;
       }
+      
+      const paymentAccount = await PaymentAccount.findById(goal.paymentAccountId);
+      if (!paymentAccount || !paymentAccount.plaidProcessorToken) {
+        console.log(`Skipping goal ${goal._id}: PaymentAccount not found or no plaidProcessorToken`);
+        continue;
+      }
+      
+      const plaidToken = paymentAccount.plaidProcessorToken;
 
       const merchant = await ShopifyMerchant.findOne({ shopDomain: goal.shopDomain }); // cant this be goal.checkoutCart.shopDomain?
 

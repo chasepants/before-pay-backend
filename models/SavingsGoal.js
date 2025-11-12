@@ -19,14 +19,6 @@ const scheduleSchema = new Schema({
   installments: { type: Number },
 });
 
-const bankSchema = new Schema({
-  bankName: String,
-  bankAccountName: String,
-  bankLastFour: String,
-  bankAccountType: String,
-  plaidToken: String
-});
-
 // Google Shopping enrichment data schema (optional for ManualSavingsGoal)
 const googleShoppingDataSchema = new Schema({
   productLink: String,
@@ -64,7 +56,11 @@ const savingsGoalBaseSchema = new mongoose.Schema({
   currentAmount: { type: Number, default: 0 },
   savingsAmount: Number,
   schedule: scheduleSchema,
-  bank: bankSchema,
+  paymentAccountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PaymentAccount',
+    index: true
+  },
   transfers: [transferSchema],
   isPaused: { type: Boolean, default: false },
   guestEmail: { type: String },

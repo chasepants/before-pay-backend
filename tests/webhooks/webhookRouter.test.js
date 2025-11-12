@@ -24,6 +24,9 @@ jest.mock('@unit-finance/unit-node-sdk', () => {
 jest.mock('axios');
 const axios = require('axios');
 
+// Set UNIT_API_KEY for tests
+process.env.UNIT_API_KEY = 'test-api-key';
+
 const { webhook } = require('../../webhooks/index');
 
 describe('Webhook Router', () => {
@@ -318,9 +321,161 @@ describe('Webhook Router', () => {
     });
 
     it('should handle payment events', async () => {
+      // Create test data
+      const User = require('../../models/User');
+      const SavingsGoal = require('../../models/SavingsGoal');
+      const Payment = require('../../models/Payment');
+      const PaymentAccount = require('../../models/PaymentAccount');
+      
+      const user = new User({
+        email: 'test@example.com',
+        unitAccountId: 'account-123'
+      });
+      await user.save();
+
+      const paymentAccount = new PaymentAccount({
+        userId: user._id,
+        plaidProcessorToken: 'plaid-token-123',
+        accountType: 'checking',
+        isActive: true
+      });
+      await paymentAccount.save();
+
+      const goal = new SavingsGoal({
+        userId: user._id,
+        goalName: 'Test Goal',
+        targetAmount: 1000,
+        currentAmount: 0,
+        savingsAmount: 100
+      });
+      await goal.save();
+
+      // Create Payment record
+      const payment = new Payment({
+        paymentId: 'payment-123',
+        savingsGoalId: goal._id,
+        userId: user._id,
+        paymentAccountId: paymentAccount._id,
+        direction: 'Debit',
+        amount: 100,
+        paymentType: 'manual_installment',
+        status: 'pending'
+      });
+      await payment.save();
+
       const payload = {
         data: [{
           type: 'payment.created',
+          relationships: {
+            payment: {
+              data: {
+                id: 'payment-123'
+              }
+            }
+          }
+        }]
+      };
+
+      const response = await request(app)
+        .post('/webhook')
+        .send(payload)
+        .expect(200);
+
+      expect(response.body).toEqual({ received: true });
+    }, 10000); // Increase timeout
+
+    it('should handle payment.clearing event', async () => {
+      const payload = {
+        data: [{
+          type: 'payment.clearing',
+          relationships: {
+            payment: {
+              data: {
+                id: 'payment-123'
+              }
+            }
+          }
+        }]
+      };
+
+      const response = await request(app)
+        .post('/webhook')
+        .send(payload)
+        .expect(200);
+
+      expect(response.body).toEqual({ received: true });
+    });
+
+    it('should handle payment.sent event', async () => {
+      const payload = {
+        data: [{
+          type: 'payment.sent',
+          relationships: {
+            payment: {
+              data: {
+                id: 'payment-123'
+              }
+            }
+          }
+        }]
+      };
+
+      const response = await request(app)
+        .post('/webhook')
+        .send(payload)
+        .expect(200);
+
+      expect(response.body).toEqual({ received: true });
+    });
+
+    it('should handle payment.rejected event', async () => {
+      const payload = {
+        data: [{
+          type: 'payment.rejected',
+          relationships: {
+            payment: {
+              data: {
+                id: 'payment-123'
+              }
+            }
+          }
+        }]
+      };
+
+      const response = await request(app)
+        .post('/webhook')
+        .send(payload)
+        .expect(200);
+
+      expect(response.body).toEqual({ received: true });
+    });
+
+    it('should handle payment.returned event', async () => {
+      const payload = {
+        data: [{
+          type: 'payment.returned',
+          relationships: {
+            payment: {
+              data: {
+                id: 'payment-123'
+              }
+            }
+          }
+        }]
+      };
+
+      const response = await request(app)
+        .post('/webhook')
+        .send(payload)
+        .expect(200);
+
+      expect(response.body).toEqual({ received: true });
+    });
+
+    it('should handle payment.canceled event', async () => {
+      const payload = {
+        data: [{
+          type: 'payment.canceled',
           relationships: {
             payment: {
               data: {

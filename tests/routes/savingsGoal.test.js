@@ -10,6 +10,7 @@ const { ManualSavingsGoal, ShopifySavingsGoal } = require('../../models/SavingsG
 const ShopifyMerchant = require('../../models/ShopifyMerchant');
 const CheckoutCart = require('../../models/CheckoutCart');
 const EmailToken = require('../../models/EmailToken');
+const PaymentAccount = require('../../models/PaymentAccount');
 const { generateImage, enhanceDescription } = require('../../services/xaiService');
 const { searchProducts } = require('../../services/webSearchService');
 
@@ -43,6 +44,15 @@ jest.mock('../../services/unitService', () => {
   return jest.fn().mockImplementation(() => ({
     createPayment: mockCreatePayment
   }));
+});
+
+let mockSavingsGoalService = {
+  createPaymentForGoal: jest.fn(),
+  findOrCreatePaymentAccount: jest.fn()
+};
+
+jest.mock('../../services/savingsGoalService', () => {
+  return jest.fn().mockImplementation(() => mockSavingsGoalService);
 });
 
 jest.mock('axios');
@@ -2955,6 +2965,22 @@ describe('SavingsGoal Routes', () => {
         });
         await emailToken.save();
 
+        // Mock findOrCreatePaymentAccount to actually create PaymentAccount in database
+        mockSavingsGoalService.findOrCreatePaymentAccount.mockImplementation(async (goal, processorToken, bankDetails) => {
+          // Actually create PaymentAccount in database
+          const paymentAccount = new PaymentAccount({
+            userId: goal.userId || testUser._id,
+            plaidProcessorToken: processorToken,
+            bankName: bankDetails?.bankName || 'Chase Bank',
+            bankAccountName: bankDetails?.bankAccountName || 'Primary Checking',
+            bankLastFour: bankDetails?.bankLastFour || '1234',
+            accountType: bankDetails?.bankAccountType || 'checking',
+            isActive: true
+          });
+          await paymentAccount.save();
+          return paymentAccount;
+        });
+
         const goalData = {
           emailToken: 'test-email-token-shopify',
           goalName: 'Test Guest Goal',
@@ -2989,12 +3015,15 @@ describe('SavingsGoal Routes', () => {
         expect(response.body.savingsGoal.checkoutCartId).toBeDefined();
         expect(response.body.savingsGoal.shopDomain).toBe('test-shop.myshopify.com');
 
-        // Bank details assertions
-        expect(response.body.savingsGoal.bank).toBeDefined();
-        expect(response.body.savingsGoal.bank.bankName).toBe('Chase Bank');
-        expect(response.body.savingsGoal.bank.bankAccountName).toBe('Primary Checking');
-        expect(response.body.savingsGoal.bank.bankLastFour).toBe('1234');
-        expect(response.body.savingsGoal.bank.bankAccountType).toBe('checking');
+        // PaymentAccount assertions
+        expect(response.body.savingsGoal.paymentAccountId).toBeDefined();
+        // Verify PaymentAccount was created by checking it exists in the database
+        const paymentAccount = await PaymentAccount.findById(response.body.savingsGoal.paymentAccountId);
+        expect(paymentAccount).toBeDefined();
+        expect(paymentAccount.bankName).toBe('Chase Bank');
+        expect(paymentAccount.bankAccountName).toBe('Primary Checking');
+        expect(paymentAccount.bankLastFour).toBe('1234');
+        expect(paymentAccount.accountType).toBe('checking');
       });
 
       it('should return 400 if required fields are missing', async () => {
@@ -3110,6 +3139,16 @@ describe('SavingsGoal Routes', () => {
         });
         await cart.save();
 
+        // Create PaymentAccount first
+        const paymentAccount = new PaymentAccount({
+          userId: testUser._id,
+          plaidProcessorToken: 'plaid-token-123',
+          bankName: 'Test Bank',
+          accountType: 'checking',
+          isActive: true
+        });
+        await paymentAccount.save();
+
         shopifyGoal = new ShopifySavingsGoal({
           userId: testUser._id,
           goalName: 'Shopify Order',
@@ -3118,9 +3157,7 @@ describe('SavingsGoal Routes', () => {
           savingsAmount: 100,
           checkoutCartId: cart._id,
           shopDomain: 'test-shop.myshopify.com',
-          bank: {
-            plaidToken: 'plaid-token-123'
-          },
+          paymentAccountId: paymentAccount._id,
           isPaused: false,
           transfers: [
             {
@@ -3141,10 +3178,24 @@ describe('SavingsGoal Routes', () => {
         });
         await shopifyGoal.save();
 
-        mockCreatePayment.mockResolvedValue({
-          data: {
-            id: 'refund-payment-123'
-          }
+        // Mock createPaymentForGoal to actually link payment to goal
+        mockSavingsGoalService.createPaymentForGoal.mockImplementation(async (goal, paymentData) => {
+          // Simulate linking payment to goal
+          goal.transfers.push({
+            transferId: 'refund-payment-123',
+            amount: 200,
+            date: new Date(),
+            status: 'pending',
+            type: 'credit'
+          });
+          await goal.save();
+          
+          return {
+            paymentId: 'refund-payment-123',
+            direction: 'Credit',
+            amount: 200,
+            status: 'pending'
+          };
         });
       });
 
@@ -3168,23 +3219,23 @@ describe('SavingsGoal Routes', () => {
         expect(updatedGoal.transfers[2].status).toBe('pending');
         expect(updatedGoal.transfers[2].transferId).toBe('refund-payment-123');
 
-        expect(mockCreatePayment).toHaveBeenCalledWith({
-          type: 'achPayment',
-          attributes: {
-            amount: 20000,
+        expect(mockSavingsGoalService.createPaymentForGoal).toHaveBeenCalledWith(
+          expect.objectContaining({
+            _id: shopifyGoal._id
+          }),
+          expect.objectContaining({
             direction: 'Credit',
-            description: 'Refund for Shopify Order',
+            amount: 200,
+            paymentType: 'refund',
             plaidProcessorToken: 'plaid-token-123',
-            tags: {
+            description: 'Refund for Shopify Order',
+            tags: expect.objectContaining({
               savingsGoalId: shopifyGoal._id.toString(),
               userId: testUser._id.toString(),
               type: 'shopifyRefund'
-            }
-          },
-          relationships: {
-            account: { data: { type: 'account', id: 'merchant-account-123' } }
-          }
-        });
+            })
+          })
+        );
       });
 
       it('should return 404 when goal not found', async () => {
@@ -3284,9 +3335,8 @@ describe('SavingsGoal Routes', () => {
         expect(response.body.error).toContain('No amount available for refund');
       });
 
-      it('should return 400 when no bank account linked', async () => {
-        shopifyGoal.bank = shopifyGoal.bank || {};
-        shopifyGoal.bank.plaidToken = null;
+      it('should return 400 when no payment account linked', async () => {
+        shopifyGoal.paymentAccountId = null;
         await shopifyGoal.save();
 
         const response = await request(app)
@@ -3294,7 +3344,7 @@ describe('SavingsGoal Routes', () => {
           .set('Authorization', `Bearer ${authToken}`)
           .expect(400);
 
-        expect(response.body.error).toContain('No bank account linked');
+        expect(response.body.error).toContain('No payment account linked');
       });
 
       it('should return 404 when merchant not found', async () => {
@@ -3342,7 +3392,7 @@ describe('SavingsGoal Routes', () => {
       });
 
       it('should handle Unit API errors', async () => {
-        mockCreatePayment.mockRejectedValue(new Error('Unit API error'));
+        mockSavingsGoalService.createPaymentForGoal.mockRejectedValue(new Error('Payment creation failed'));
 
         const response = await request(app)
           .post(`/api/savings-goal/${shopifyGoal._id}/refund`)
@@ -3400,6 +3450,16 @@ describe('SavingsGoal Routes', () => {
         }
       });
 
+      // Mock PaymentAccount return
+      const mockPaymentAccount = {
+        _id: new mongoose.Types.ObjectId(),
+        userId: testUser._id,
+        plaidProcessorToken: 'processor-token-123',
+        bankName: 'Test Bank',
+        accountType: 'checking'
+      };
+      mockSavingsGoalService.findOrCreatePaymentAccount.mockResolvedValue(mockPaymentAccount);
+
       const requestBody = {
         plaidAccessToken: 'public-token-123',
         plaidAccountId: 'account-123',
@@ -3416,6 +3476,7 @@ describe('SavingsGoal Routes', () => {
       expect(response.body.success).toBe(true);
       expect(mockExchangePublicToken).toHaveBeenCalledWith('public-token-123');
       expect(mockCreateProcessorToken).toHaveBeenCalledWith('access-token-123', 'account-123');
+      expect(mockSavingsGoalService.findOrCreatePaymentAccount).toHaveBeenCalled();
     });
 
     it('should successfully setup savings with monthly schedule', async () => {
@@ -3431,6 +3492,16 @@ describe('SavingsGoal Routes', () => {
           processor_token: 'processor-token-123'
         }
       });
+
+      // Mock PaymentAccount return
+      const mockPaymentAccount = {
+        _id: new mongoose.Types.ObjectId(),
+        userId: testUser._id,
+        plaidProcessorToken: 'processor-token-123',
+        bankName: 'Test Bank',
+        accountType: 'checking'
+      };
+      mockSavingsGoalService.findOrCreatePaymentAccount.mockResolvedValue(mockPaymentAccount);
 
       const requestBody = {
         plaidAccessToken: 'public-token-123',

@@ -6,9 +6,16 @@ const jwt = require('jsonwebtoken');
 
 const shopifyMerchantRouter = require('../../routes/shopifyMerchant');
 const ShopifyMerchant = require('../../models/ShopifyMerchant');
+const User = require('../../models/User');
 
 jest.mock('axios');
 const axios = require('axios');
+
+// Mock Firebase service
+jest.mock('../../services/firebaseService', () => ({
+  createUserWithEmailAndPassword: jest.fn(),
+  deleteUser: jest.fn()
+}));
 
 jest.mock('../../services/unitMerchantService', () => ({
   createUnitApplicationForm: jest.fn()
@@ -82,6 +89,7 @@ describe('Shopify Merchant Routes', () => {
 
   beforeEach(async () => {
     await ShopifyMerchant.deleteMany({});
+    await User.deleteMany({});
     jest.clearAllMocks();
     
     axios.get.mockResolvedValue({
@@ -1107,6 +1115,397 @@ describe('Shopify Merchant Routes', () => {
         .expect(500);
 
       expect(response.body.error).toBe('Failed to generate customer token: Unit API error');
+    });
+  });
+
+  describe('POST /api/shopify-merchant/register-with-credentials', () => {
+    const firebaseService = require('../../services/firebaseService');
+
+    it('should successfully register merchant with credentials', async () => {
+      firebaseService.createUserWithEmailAndPassword.mockResolvedValue({
+        uid: 'firebase-uid-123',
+        email: 'merchant@example.com'
+      });
+
+      const response = await request(app)
+        .post('/api/shopify-merchant/register-with-credentials')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          shopifyShopId: 'new-shop',
+          email: 'merchant@example.com',
+          password: 'password123',
+          firstName: 'John',
+          lastName: 'Doe'
+        })
+        .expect(200);
+
+      expect(response.body.message).toBe('Merchant user created successfully');
+      expect(response.body.user.email).toBe('merchant@example.com');
+      expect(response.body.user.firstName).toBe('John');
+      expect(response.body.user.lastName).toBe('Doe');
+      expect(response.body.user.userType).toBe('merchant');
+      expect(response.body.merchant.shopifyShopId).toBe('new-shop');
+      expect(response.body.merchant.onboardingStatus).toBe('in_progress');
+
+      // Verify user was created
+      const savedUser = await User.findOne({ email: 'merchant@example.com' });
+      expect(savedUser).toBeTruthy();
+      expect(savedUser.firebaseUid).toBe('firebase-uid-123');
+      expect(savedUser.shopifyMerchantId).toBeDefined();
+
+      // Verify merchant was created
+      const savedMerchant = await ShopifyMerchant.findOne({ shopifyShopId: 'new-shop' });
+      expect(savedMerchant).toBeTruthy();
+    });
+
+    it('should return 400 when required fields are missing', async () => {
+      const response = await request(app)
+        .post('/api/shopify-merchant/register-with-credentials')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          shopifyShopId: 'new-shop',
+          email: 'merchant@example.com'
+          // Missing password, firstName, lastName
+        })
+        .expect(400);
+
+      expect(response.body.error).toBe('All fields are required');
+    });
+
+    it('should return 409 when user with email already exists', async () => {
+      const existingUser = new User({
+        email: 'existing@example.com',
+        firstName: 'Existing',
+        lastName: 'User',
+        userType: 'merchant',
+        status: 'approved'
+      });
+      await existingUser.save();
+
+      const response = await request(app)
+        .post('/api/shopify-merchant/register-with-credentials')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          shopifyShopId: 'new-shop',
+          email: 'existing@example.com',
+          password: 'password123',
+          firstName: 'John',
+          lastName: 'Doe'
+        })
+        .expect(409);
+
+      expect(response.body.error).toBe('User with this email already exists');
+    });
+
+    it('should use existing merchant if shopifyShopId already exists', async () => {
+      const existingMerchant = new ShopifyMerchant({
+        shopifyShopId: 'existing-shop',
+        shopDomain: 'existing-shop.myshopify.com',
+        onboardingStatus: 'pending'
+      });
+      await existingMerchant.save();
+
+      firebaseService.createUserWithEmailAndPassword.mockResolvedValue({
+        uid: 'firebase-uid-456',
+        email: 'merchant2@example.com'
+      });
+
+      const response = await request(app)
+        .post('/api/shopify-merchant/register-with-credentials')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          shopifyShopId: 'existing-shop',
+          email: 'merchant2@example.com',
+          password: 'password123',
+          firstName: 'Jane',
+          lastName: 'Smith'
+        })
+        .expect(200);
+
+      expect(response.body.merchant.id).toBe(existingMerchant._id.toString());
+      expect(response.body.merchant.onboardingStatus).toBe('pending');
+    });
+
+    it('should return 400 when Firebase user creation fails', async () => {
+      firebaseService.createUserWithEmailAndPassword.mockRejectedValue(new Error('Firebase error: Email already in use'));
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const response = await request(app)
+        .post('/api/shopify-merchant/register-with-credentials')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          shopifyShopId: 'new-shop',
+          email: 'merchant@example.com',
+          password: 'password123',
+          firstName: 'John',
+          lastName: 'Doe'
+        })
+        .expect(400);
+
+      expect(response.body.error).toBe('Failed to create user account');
+      expect(response.body.details).toBe('Firebase error: Email already in use');
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should cleanup Firebase user when MongoDB user creation fails', async () => {
+      firebaseService.createUserWithEmailAndPassword.mockResolvedValue({
+        uid: 'firebase-uid-789',
+        email: 'merchant@example.com'
+      });
+
+      // Mock User.prototype.save to throw an error
+      const originalSave = User.prototype.save;
+      User.prototype.save = jest.fn().mockRejectedValue(new Error('MongoDB error: Duplicate key'));
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const response = await request(app)
+        .post('/api/shopify-merchant/register-with-credentials')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          shopifyShopId: 'new-shop',
+          email: 'merchant@example.com',
+          password: 'password123',
+          firstName: 'John',
+          lastName: 'Doe'
+        })
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to create user record');
+      expect(response.body.details).toBe('MongoDB error: Duplicate key');
+      expect(firebaseService.deleteUser).toHaveBeenCalledWith('firebase-uid-789');
+
+      // Restore
+      User.prototype.save = originalSave;
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should handle Firebase cleanup failure gracefully', async () => {
+      firebaseService.createUserWithEmailAndPassword.mockResolvedValue({
+        uid: 'firebase-uid-999',
+        email: 'merchant@example.com'
+      });
+
+      firebaseService.deleteUser.mockRejectedValue(new Error('Firebase delete failed'));
+
+      // Mock User.prototype.save to throw an error
+      const originalSave = User.prototype.save;
+      User.prototype.save = jest.fn().mockRejectedValue(new Error('MongoDB error'));
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const response = await request(app)
+        .post('/api/shopify-merchant/register-with-credentials')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          shopifyShopId: 'new-shop',
+          email: 'merchant@example.com',
+          password: 'password123',
+          firstName: 'John',
+          lastName: 'Doe'
+        })
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to create user record');
+      expect(firebaseService.deleteUser).toHaveBeenCalledWith('firebase-uid-999');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to cleanup Firebase user:', expect.any(Error));
+
+      // Restore
+      User.prototype.save = originalSave;
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should return 500 when outer catch block catches an error', async () => {
+      // Mock ShopifyMerchant.findOne to throw an error
+      const originalFindOne = ShopifyMerchant.findOne;
+      ShopifyMerchant.findOne = jest.fn().mockRejectedValue(new Error('Database error'));
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const response = await request(app)
+        .post('/api/shopify-merchant/register-with-credentials')
+        .set('Authorization', `Bearer ${validToken}`)
+        .send({
+          shopifyShopId: 'new-shop',
+          email: 'merchant@example.com',
+          password: 'password123',
+          firstName: 'John',
+          lastName: 'Doe'
+        })
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to register merchant with credentials');
+
+      // Restore original method
+      ShopifyMerchant.findOne = originalFindOne;
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('GET /api/shopify-merchant/', () => {
+    let merchant;
+    let merchantUser;
+
+    beforeEach(async () => {
+      merchant = new ShopifyMerchant({
+        shopifyShopId: 'test-shop',
+        shopDomain: 'test-shop.myshopify.com',
+        onboardingStatus: 'completed',
+        unitApplicationId: 'app-123',
+        unitCustomerId: 'customer-456',
+        unitAccountId: 'account-789',
+        abandonedCartEmailsEnabled: true
+      });
+      await merchant.save();
+
+      merchantUser = new User({
+        email: 'merchant@example.com',
+        firstName: 'Merchant',
+        lastName: 'User',
+        userType: 'merchant',
+        shopifyMerchantId: merchant._id,
+        status: 'approved'
+      });
+      await merchantUser.save();
+    });
+
+    it('should successfully fetch merchant data for authenticated merchant user', async () => {
+      const auth = require('../../middleware/auth');
+      auth.ensureAuthenticated.mockImplementation((req, res, next) => {
+        req.user = { id: merchantUser._id };
+        next();
+      });
+
+      const response = await request(app)
+        .get('/api/shopify-merchant/')
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.merchant.id).toBe(merchant._id.toString());
+      expect(response.body.merchant.shopifyShopId).toBe('test-shop');
+      expect(response.body.merchant.shopDomain).toBe('test-shop.myshopify.com');
+      expect(response.body.merchant.onboardingStatus).toBe('completed');
+      expect(response.body.merchant.unitApplicationId).toBe('app-123');
+      expect(response.body.merchant.unitCustomerId).toBe('customer-456');
+      expect(response.body.merchant.unitAccountId).toBe('account-789');
+      expect(response.body.merchant.abandonedCartEmailsEnabled).toBe(true);
+    });
+
+    it('should return 404 when user not found', async () => {
+      const auth = require('../../middleware/auth');
+      auth.ensureAuthenticated.mockImplementation((req, res, next) => {
+        req.user = { id: new mongoose.Types.ObjectId() }; // Non-existent user ID
+        next();
+      });
+
+      const response = await request(app)
+        .get('/api/shopify-merchant/')
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(404);
+
+      expect(response.body.error).toBe('User not found');
+    });
+
+    it('should return 403 when user is not a merchant', async () => {
+      const regularUser = new User({
+        email: 'regular@example.com',
+        firstName: 'Regular',
+        lastName: 'User',
+        userType: 'savings-account',
+        status: 'approved'
+      });
+      await regularUser.save();
+
+      const auth = require('../../middleware/auth');
+      auth.ensureAuthenticated.mockImplementation((req, res, next) => {
+        req.user = { id: regularUser._id };
+        next();
+      });
+
+      const response = await request(app)
+        .get('/api/shopify-merchant/')
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(403);
+
+      expect(response.body.error).toBe('Access denied. Only merchants can access this data.');
+    });
+
+    it('should return 404 when user has no shopifyMerchantId', async () => {
+      const merchantUserWithoutId = new User({
+        email: 'merchant2@example.com',
+        firstName: 'Merchant',
+        lastName: 'User',
+        userType: 'merchant',
+        status: 'approved'
+        // No shopifyMerchantId
+      });
+      await merchantUserWithoutId.save();
+
+      const auth = require('../../middleware/auth');
+      auth.ensureAuthenticated.mockImplementation((req, res, next) => {
+        req.user = { id: merchantUserWithoutId._id };
+        next();
+      });
+
+      const response = await request(app)
+        .get('/api/shopify-merchant/')
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(404);
+
+      expect(response.body.error).toBe('No merchant account found for this user.');
+    });
+
+    it('should return 404 when merchant not found', async () => {
+      const merchantUserWithInvalidId = new User({
+        email: 'merchant3@example.com',
+        firstName: 'Merchant',
+        lastName: 'User',
+        userType: 'merchant',
+        shopifyMerchantId: new mongoose.Types.ObjectId(), // Non-existent merchant ID
+        status: 'approved'
+      });
+      await merchantUserWithInvalidId.save();
+
+      const auth = require('../../middleware/auth');
+      auth.ensureAuthenticated.mockImplementation((req, res, next) => {
+        req.user = { id: merchantUserWithInvalidId._id };
+        next();
+      });
+
+      const response = await request(app)
+        .get('/api/shopify-merchant/')
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(404);
+
+      expect(response.body.error).toBe('Merchant not found');
+    });
+
+    it('should return 500 when database error occurs', async () => {
+      const auth = require('../../middleware/auth');
+      auth.ensureAuthenticated.mockImplementation((req, res, next) => {
+        req.user = { id: merchantUser._id };
+        next();
+      });
+
+      // Mock User.findById to throw an error
+      const originalFindById = User.findById;
+      User.findById = jest.fn().mockRejectedValue(new Error('Database error'));
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const response = await request(app)
+        .get('/api/shopify-merchant/')
+        .set('Authorization', `Bearer ${validToken}`)
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to fetch merchant data');
+
+      // Restore original method
+      User.findById = originalFindById;
+      consoleErrorSpy.mockRestore();
     });
   });
 });

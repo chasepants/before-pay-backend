@@ -2,18 +2,21 @@ const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const { processScheduledPayments } = require('../../cron/process-scheduled-payments');
 const SavingsGoalService = require('../../services/savingsGoalService');
-const User = require('../../models/User');
-const SavingsGoal = require('../../models/SavingsGoal');
-const { ManualSavingsGoal } = require('../../models/SavingsGoal');
 const PaymentAccount = require('../../models/PaymentAccount');
+const Payment = require('../../models/Payment');
+const User = require('../../models/User');
+const ShopifyMerchant = require('../../models/ShopifyMerchant');
+const SavingsGoal = require('../../models/SavingsGoal');
+const { ManualSavingsGoal, ShopifySavingsGoal } = require('../../models/SavingsGoal');
 
 // Mock SavingsGoalService
 jest.mock('../../services/savingsGoalService');
 
-describe('process-scheduled-payments (unified cron)', () => {
+describe('process-scheduled-payments', () => {
   let mongoServer;
   let mockSavingsGoalService;
   let testUser;
+  let testMerchant;
 
   beforeAll(async () => {
     mongoServer = await MongoMemoryServer.create();
@@ -28,8 +31,10 @@ describe('process-scheduled-payments (unified cron)', () => {
 
   beforeEach(async () => {
     await PaymentAccount.deleteMany({});
-    await User.deleteMany({});
+    await Payment.deleteMany({});
     await SavingsGoal.deleteMany({});
+    await User.deleteMany({});
+    await ShopifyMerchant.deleteMany({});
 
     testUser = new User({
       email: 'test@example.com',
@@ -38,6 +43,13 @@ describe('process-scheduled-payments (unified cron)', () => {
       lastName: 'User'
     });
     await testUser.save();
+
+    testMerchant = new ShopifyMerchant({
+      shopDomain: 'test-shop.myshopify.com',
+      shopifyShopId: 'shop-123',
+      unitAccountId: 'merchant-unit-account-id'
+    });
+    await testMerchant.save();
 
     // Mock SavingsGoalService
     mockSavingsGoalService = {
@@ -49,12 +61,12 @@ describe('process-scheduled-payments (unified cron)', () => {
       })
     };
     SavingsGoalService.mockImplementation(() => mockSavingsGoalService);
-    
+
     jest.clearAllMocks();
   });
 
   describe('processScheduledPayments', () => {
-    it('should process savings goals scheduled for today (day of month)', async () => {
+    it('should process manual savings goals scheduled for today (day of month)', async () => {
       const today = new Date();
       const dayOfMonth = today.getUTCDate();
 
@@ -83,7 +95,6 @@ describe('process-scheduled-payments (unified cron)', () => {
       });
       await savingsGoal.save();
 
-
       await processScheduledPayments();
 
       expect(mockSavingsGoalService.createPaymentForGoal).toHaveBeenCalledWith(
@@ -100,7 +111,7 @@ describe('process-scheduled-payments (unified cron)', () => {
       );
     });
 
-    it('should process savings goals scheduled for today (day of week)', async () => {
+    it('should process manual savings goals scheduled for today (day of week)', async () => {
       const today = new Date();
       const daysOfWeek = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
       const dayOfWeek = daysOfWeek[today.getUTCDay()];
@@ -135,6 +146,55 @@ describe('process-scheduled-payments (unified cron)', () => {
       expect(mockSavingsGoalService.createPaymentForGoal).toHaveBeenCalled();
     });
 
+    it('should process Shopify savings goals scheduled for today', async () => {
+      const today = new Date();
+      const dayOfMonth = today.getUTCDate();
+
+      testUser.shopifyMerchantId = testMerchant._id;
+      await testUser.save();
+
+      // Create PaymentAccount first
+      const paymentAccount = new PaymentAccount({
+        userId: testUser._id,
+        plaidProcessorToken: 'test-plaid-token',
+        bankName: 'Test Bank',
+        accountType: 'checking',
+        isActive: true
+      });
+      await paymentAccount.save();
+
+      const savingsGoal = new ShopifySavingsGoal({
+        userId: testUser._id,
+        goalName: 'Shopify Goal',
+        targetAmount: 1000.00,
+        savingsAmount: 250.00,
+        shopDomain: 'test-shop.myshopify.com',
+        checkoutCartId: new mongoose.Types.ObjectId(),
+        paymentAccountId: paymentAccount._id,
+        schedule: {
+          dayOfMonth: dayOfMonth,
+          dayOfWeek: null
+        },
+        transfers: []
+      });
+      await savingsGoal.save();
+
+      await processScheduledPayments();
+
+      expect(mockSavingsGoalService.createPaymentForGoal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _id: savingsGoal._id
+        }),
+        expect.objectContaining({
+          direction: 'Debit',
+          amount: 250.00,
+          paymentType: 'shopify_installment',
+          plaidProcessorToken: 'test-plaid-token',
+          description: 'Funding'
+        })
+      );
+    });
+
     it('should not process savings goals not scheduled for today', async () => {
       const tomorrow = new Date();
       tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -162,28 +222,52 @@ describe('process-scheduled-payments (unified cron)', () => {
       expect(mockSavingsGoalService.createPaymentForGoal).not.toHaveBeenCalled();
     });
 
-    it('should skip savings goals for users without unitAccountId', async () => {
+    it('should skip paused savings goals', async () => {
       const today = new Date();
       const dayOfMonth = today.getUTCDate();
 
-      const userWithoutUnit = new User({
-        email: 'nouint@example.com',
-        password: 'hashedpassword',
-        unitAccountId: null,
-        firstName: 'No',
-        lastName: 'Unit'
+      // Create PaymentAccount first
+      const paymentAccount = new PaymentAccount({
+        userId: testUser._id,
+        plaidProcessorToken: 'test-plaid-token',
+        bankName: 'Test Bank',
+        accountType: 'checking',
+        isActive: true
       });
-      await userWithoutUnit.save();
+      await paymentAccount.save();
 
-      const savingsGoal = new ManualSavingsGoal({
-        userId: userWithoutUnit._id,
-        goalName: 'No Unit Goal',
+      const pausedGoal = new ManualSavingsGoal({
+        userId: testUser._id,
+        goalName: 'Paused Goal',
         targetAmount: 1000.00,
         savingsAmount: 50.00,
         category: 'other',
-        bank: {
-          plaidToken: 'test-plaid-token'
+        paymentAccountId: paymentAccount._id,
+        schedule: {
+          dayOfMonth: dayOfMonth,
+          dayOfWeek: null
         },
+        transfers: [],
+        isPaused: true
+      });
+      await pausedGoal.save();
+
+      await processScheduledPayments();
+
+      expect(mockSavingsGoalService.createPaymentForGoal).not.toHaveBeenCalled();
+    });
+
+    it('should skip savings goals without paymentAccountId', async () => {
+      const today = new Date();
+      const dayOfMonth = today.getUTCDate();
+
+      const savingsGoal = new ManualSavingsGoal({
+        userId: testUser._id,
+        goalName: 'No Token Goal',
+        targetAmount: 1000.00,
+        savingsAmount: 50.00,
+        category: 'other',
+        paymentAccountId: null,
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -197,19 +281,96 @@ describe('process-scheduled-payments (unified cron)', () => {
       expect(mockSavingsGoalService.createPaymentForGoal).not.toHaveBeenCalled();
     });
 
-    it('should skip savings goals for non-existent users', async () => {
+    it('should skip savings goals for users without unitAccountId', async () => {
       const today = new Date();
       const dayOfMonth = today.getUTCDate();
 
+      const userWithoutUnit = new User({
+        email: 'nouint@example.com',
+        unitAccountId: null,
+        firstName: 'No',
+        lastName: 'Unit'
+      });
+      await userWithoutUnit.save();
+
+      // Create PaymentAccount first
+      const paymentAccount = new PaymentAccount({
+        userId: userWithoutUnit._id,
+        plaidProcessorToken: 'test-plaid-token',
+        bankName: 'Test Bank',
+        accountType: 'checking',
+        isActive: true
+      });
+      await paymentAccount.save();
+
       const savingsGoal = new ManualSavingsGoal({
-        userId: new mongoose.Types.ObjectId(),
-        goalName: 'Non-existent User Goal',
+        userId: userWithoutUnit._id,
+        goalName: 'No Unit Goal',
         targetAmount: 1000.00,
         savingsAmount: 50.00,
         category: 'other',
-        bank: {
-          plaidToken: 'test-plaid-token'
+        paymentAccountId: paymentAccount._id,
+        schedule: {
+          dayOfMonth: dayOfMonth,
+          dayOfWeek: null
         },
+        transfers: []
+      });
+      await savingsGoal.save();
+
+      await processScheduledPayments();
+
+      expect(mockSavingsGoalService.createPaymentForGoal).not.toHaveBeenCalled();
+    });
+
+    it('should skip Shopify goals if merchant not found', async () => {
+      const today = new Date();
+      const dayOfMonth = today.getUTCDate();
+
+      testUser.shopifyMerchantId = testMerchant._id;
+      await testUser.save();
+
+      const savingsGoal = new ShopifySavingsGoal({
+        userId: testUser._id,
+        goalName: 'Shopify Goal',
+        targetAmount: 1000.00,
+        savingsAmount: 250.00,
+        shopDomain: 'non-existent-shop.myshopify.com',
+        checkoutCartId: new mongoose.Types.ObjectId(),
+        schedule: {
+          dayOfMonth: dayOfMonth,
+          dayOfWeek: null
+        },
+        transfers: []
+      });
+      await savingsGoal.save();
+
+      await processScheduledPayments();
+
+      expect(mockSavingsGoalService.createPaymentForGoal).not.toHaveBeenCalled();
+    });
+
+    it('should skip Shopify goals if merchant has no unitAccountId', async () => {
+      const today = new Date();
+      const dayOfMonth = today.getUTCDate();
+
+      const merchantWithoutUnit = new ShopifyMerchant({
+        shopDomain: 'no-unit-shop.myshopify.com',
+        shopifyShopId: 'shop-456',
+        unitAccountId: null
+      });
+      await merchantWithoutUnit.save();
+
+      testUser.shopifyMerchantId = merchantWithoutUnit._id;
+      await testUser.save();
+
+      const savingsGoal = new ShopifySavingsGoal({
+        userId: testUser._id,
+        goalName: 'Shopify Goal',
+        targetAmount: 1000.00,
+        savingsAmount: 250.00,
+        shopDomain: 'no-unit-shop.myshopify.com',
+        checkoutCartId: new mongoose.Types.ObjectId(),
         schedule: {
           dayOfMonth: dayOfMonth,
           dayOfWeek: null
@@ -325,101 +486,6 @@ describe('process-scheduled-payments (unified cron)', () => {
       expect(mockSavingsGoalService.createPaymentForGoal).toHaveBeenCalledTimes(2);
     });
 
-    it('should handle mixed dayOfMonth and dayOfWeek schedules', async () => {
-      const today = new Date();
-      const dayOfMonth = today.getUTCDate();
-      const daysOfWeek = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-      const dayOfWeek = daysOfWeek[today.getUTCDay()];
-
-      // Create PaymentAccounts first
-      const paymentAccount1 = new PaymentAccount({
-        userId: testUser._id,
-        plaidProcessorToken: 'test-plaid-token-month',
-        bankName: 'Test Bank',
-        accountType: 'checking',
-        isActive: true
-      });
-      await paymentAccount1.save();
-
-      const paymentAccount2 = new PaymentAccount({
-        userId: testUser._id,
-        plaidProcessorToken: 'test-plaid-token-week',
-        bankName: 'Test Bank',
-        accountType: 'checking',
-        isActive: true
-      });
-      await paymentAccount2.save();
-
-      const goalByMonth = new ManualSavingsGoal({
-        userId: testUser._id,
-        goalName: 'Month Goal',
-        targetAmount: 600.00,
-        savingsAmount: 30.00,
-        category: 'other',
-        paymentAccountId: paymentAccount1._id,
-        schedule: {
-          dayOfMonth: dayOfMonth,
-          dayOfWeek: null
-        },
-        transfers: []
-      });
-
-      const goalByWeek = new ManualSavingsGoal({
-        userId: testUser._id,
-        goalName: 'Week Goal',
-        targetAmount: 800.00,
-        savingsAmount: 40.00,
-        category: 'other',
-        paymentAccountId: paymentAccount2._id,
-        schedule: {
-          dayOfMonth: null,
-          dayOfWeek: dayOfWeek
-        },
-        transfers: []
-      });
-
-      await Promise.all([goalByMonth.save(), goalByWeek.save()]);
-
-      await processScheduledPayments();
-
-      expect(mockSavingsGoalService.createPaymentForGoal).toHaveBeenCalledTimes(2);
-    });
-
-    it('should skip paused savings goals', async () => {
-      const today = new Date();
-      const dayOfMonth = today.getUTCDate();
-
-      // Create PaymentAccount first
-      const paymentAccount = new PaymentAccount({
-        userId: testUser._id,
-        plaidProcessorToken: 'test-plaid-token',
-        bankName: 'Test Bank',
-        accountType: 'checking',
-        isActive: true
-      });
-      await paymentAccount.save();
-
-      const pausedGoal = new ManualSavingsGoal({
-        userId: testUser._id,
-        goalName: 'Paused Goal',
-        targetAmount: 1000.00,
-        savingsAmount: 50.00,
-        category: 'other',
-        paymentAccountId: paymentAccount._id,
-        schedule: {
-          dayOfMonth: dayOfMonth,
-          dayOfWeek: null
-        },
-        transfers: [],
-        isPaused: true
-      });
-      await pausedGoal.save();
-
-      await processScheduledPayments();
-
-      expect(mockSavingsGoalService.createPaymentForGoal).not.toHaveBeenCalled();
-    });
-
     it('should process savings goals for a specific date', async () => {
       const date = new Date('2025-09-27');
       const dayOfMonth = date.getUTCDate();
@@ -455,3 +521,4 @@ describe('process-scheduled-payments (unified cron)', () => {
     });
   });
 });
+

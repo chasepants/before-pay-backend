@@ -4,12 +4,12 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const SavingsGoal = require('../models/SavingsGoal');
-const User = require('../models/User');
-const jwt = require('jsonwebtoken');
 const { v4: uuid } = require('uuid');
-const UnitService = require('../services/unitService');
 const PlaidService = require('../services/plaidService');
 const { ensureAuthenticated } = require('../middleware/auth');
+const GuestSession = require('../models/GuestSession');
+const EmailToken = require('../models/EmailToken');
+const SavingsGoalService = require('../services/savingsGoalService');
 
 router.post('/plaid-link-token', ensureAuthenticated, async (req, res) => {
   try {
@@ -30,7 +30,6 @@ router.post('/plaid-link-token', ensureAuthenticated, async (req, res) => {
 });
 
 // Plaid routes for guest users
-const GuestSession = require('../models/GuestSession');
 
 /**
  * Connect Plaid account for guest users
@@ -46,7 +45,6 @@ router.post('/plaid/connect', async (req, res) => {
 
     let guestSession;
 
-    const EmailToken = require('../models/EmailToken');
     const emailTokenDoc = await EmailToken.findOne({ 
       token: emailToken, 
       expiresAt: { $gt: new Date() }
@@ -120,7 +118,6 @@ router.post('/plaid/link-token', async (req, res) => {
       userId = guestSession._id;
       clientName = 'StashPay Guest Checkout';
     } else if (emailToken) {
-      const EmailToken = require('../models/EmailToken');
       const emailTokenDoc = await EmailToken.findOne({ 
         token: emailToken,
         expiresAt: { $gt: new Date() }
@@ -191,44 +188,19 @@ router.post('/transfers/batch', ensureAuthenticated, async (req, res) => {
       }
     }
 
-    // Choose destination bank (plaid token) – use first goal that has one, or require client param
-    const destPlaidToken = goals.find(g => !!g.bank?.plaidToken)?.bank?.plaidToken;
-    if (!destPlaidToken) return res.status(400).json({ error: 'No destination bank found for transfer back' });
-    if (!req.user.unitAccountId) return res.status(400).json({ error: 'No Unit account on user' });
-
     const batchId = uuid();
+    const savingsGoalService = new SavingsGoalService();
 
-    const unitService = new UnitService();
-    const ach = await unitService.createPayment({
-      type: 'achPayment',
-      attributes: {
-        amount: total * 100,
-        direction: 'Credit',
-        description: 'Transfer Back',
-        plaidProcessorToken: destPlaidToken,
-        tags: { kind: 'transferBackBatch', batchId }
-      },
-      relationships: {
-        account: { data: { type: 'account', id: req.user.unitAccountId } }
-      }
+    // Delegate batch transfer logic to SavingsGoalService (including finding destPlaidToken and unitAccountId)
+    const result = await savingsGoalService.createBatchTransfer({
+      totalAmount: total,
+      allocations,
+      goals,
+      goalsById,
+      batchId
     });
 
-    // Record pending allocation entries across goals (link by batchId + same paymentId)
-    const now = new Date();
-    for (const a of allocations) {
-      const g = goalsById.get(a.savingsGoalId);
-      g.transfers.push({
-        transferId: ach.data.id,
-        batchId,
-        amount: Number(a.amount),
-        date: now,
-        status: 'pending',
-        type: 'credit'
-      });
-      await g.save();
-    }
-
-    return res.json({ paymentId: ach.data.id, batchId, processed: allocations.length });
+    return res.json(result);
   } catch (e) {
     console.error('transfer-back-batch error:', e);
     return res.status(500).json({ error: 'Failed to process transfer back' });
