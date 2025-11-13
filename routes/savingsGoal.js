@@ -298,8 +298,12 @@ router.post('/guest', async (req, res) => {
     
     const savingsAmount = parseFloat(targetAmount) / 4;
     const startDate = new Date();
-    startDate.setDate(startDate.getDate() + 1);
+    startDate.setUTCDate(startDate.getUTCDate() + 1);
+    startDate.setUTCHours(0, 0, 0, 0);
 
+    const dayOfMonth = startDate.getUTCDate();
+    console.log(`day of month: ${dayOfMonth}`);
+    
     const user = await User.findOne({ email: guestSession.email });
     if (!user) {
       return res.status(400).json({ error: 'User account not found. Please create your account first.' });
@@ -372,7 +376,7 @@ router.post('/guest', async (req, res) => {
         schedule: {
           startDate,
           interval: 'Monthly',
-          dayOfMonth: startDate.getDate()
+          dayOfMonth: dayOfMonth
         }
       });
     } else {
@@ -388,7 +392,7 @@ router.post('/guest', async (req, res) => {
         schedule: {
           startDate,
           interval: 'Monthly',
-          dayOfMonth: startDate.getDate()
+          dayOfMonth: dayOfMonth
         }
       });
     }

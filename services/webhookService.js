@@ -87,7 +87,7 @@ class WebhookService {
    * This is the main handler that updates payment status and goal amounts
    * @param {Object} eventData - Unit webhook event data
    */
-  async handleTransactionCreated(eventData) {
+async handleTransactionCreated(eventData) {
     const tags = eventData.attributes?.tags || {};
     const kind = tags.kind;
     const transactionId = eventData.relationships?.transaction?.data?.id;

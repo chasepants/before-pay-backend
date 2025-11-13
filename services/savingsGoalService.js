@@ -80,19 +80,15 @@ class SavingsGoalService {
     }
 
     if (goal instanceof ShopifySavingsGoal) {
-      // Shopify goal - get merchant's Unit account via user's shopifyMerchantId
-      const user = await User.findById(userId);
-      if (!user) {
-        throw new Error(`User not found: ${userId}`);
+      // Shopify goal - get merchant's Unit account via goal's shopDomain
+      // Note: Guest users don't have shopifyMerchantId, so we use shopDomain instead
+      if (!goal.shopDomain) {
+        throw new Error(`ShopifySavingsGoal missing shopDomain`);
       }
 
-      if (!user.shopifyMerchantId) {
-        throw new Error(`User ${userId} does not have a shopifyMerchantId`);
-      }
-
-      const merchant = await ShopifyMerchant.findById(user.shopifyMerchantId);
+      const merchant = await ShopifyMerchant.findOne({ shopDomain: goal.shopDomain });
       if (!merchant) {
-        throw new Error(`Merchant not found`);
+        throw new Error(`Merchant not found for shopDomain: ${goal.shopDomain}`);
       }
       
       if (!merchant.unitAccountId) {
@@ -429,7 +425,30 @@ class SavingsGoalService {
       throw new Error(`Order creation failed: ${response.data.orderCreate.userErrors.map(e => e.message).join(', ')}`);
     }
     
-    console.log('Order created successfully:', response.data?.orderCreate?.order?.id);
+    const orderId = response.data?.orderCreate?.order?.id;
+    console.log('Order created successfully:', orderId);
+    
+    // Extract numeric order ID from GraphQL ID format (gid://shopify/Order/123456)
+    let numericOrderId = null;
+    if (orderId) {
+      const match = orderId.match(/\/Order\/(\d+)$/);
+      if (match) {
+        numericOrderId = match[1];
+      } else {
+        // If it's already numeric, use it as is
+        numericOrderId = orderId;
+      }
+    }
+    
+    // Update CheckoutCart with order ID and mark as completed
+    if (numericOrderId) {
+      cart.orderId = numericOrderId.toString();
+      cart.status = 'completed';
+      await cart.save();
+      console.log(`CheckoutCart updated with orderId: ${numericOrderId}`);
+    } else {
+      console.warn('Could not extract order ID from response:', orderId);
+    }
   }
 
   /**

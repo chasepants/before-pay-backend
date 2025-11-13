@@ -2669,9 +2669,13 @@ describe('SavingsGoal Routes', () => {
 
   describe('Guest Checkout Routes', () => {
     const emailService = require('../../services/emailService');
+    const VerificationCode = require('../../models/VerificationCode');
 
-    beforeEach(() => {
-      jest.clearAllMocks();
+    beforeEach(async () => {
+      // Clean up verification codes before each test
+      await VerificationCode.deleteMany({});
+      // Reset mock call history but preserve the mock function
+      emailService.sendVerificationCode.mockClear();
     });
 
     describe('POST /auth/verification/send', () => {
@@ -3024,6 +3028,74 @@ describe('SavingsGoal Routes', () => {
         expect(paymentAccount.bankAccountName).toBe('Primary Checking');
         expect(paymentAccount.bankLastFour).toBe('1234');
         expect(paymentAccount.accountType).toBe('checking');
+      });
+
+      it('should create Shopify goal with matching startDate and dayOfMonth', async () => {
+        // Create EmailToken and CheckoutCart
+        const cart = new CheckoutCart({
+          checkoutId: 'test-checkout-schedule',
+          email: 'test@example.com',
+          shopDomain: 'test-shop.myshopify.com',
+          totalPrice: '1000',
+          lineItems: [{
+            title: 'Test Product',
+            price: 1000,
+            quantity: 1
+          }]
+        });
+        await cart.save();
+
+        const emailToken = new EmailToken({
+          token: 'test-email-token-schedule',
+          email: 'test@example.com',
+          checkoutId: 'test-checkout-schedule',
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000)
+        });
+        await emailToken.save();
+
+        // Mock findOrCreatePaymentAccount
+        mockSavingsGoalService.findOrCreatePaymentAccount.mockImplementation(async (goal, processorToken, bankDetails) => {
+          const paymentAccount = new PaymentAccount({
+            userId: goal.userId || testUser._id,
+            plaidProcessorToken: processorToken,
+            bankName: bankDetails?.bankName || 'Chase Bank',
+            bankAccountName: bankDetails?.bankAccountName || 'Primary Checking',
+            bankLastFour: bankDetails?.bankLastFour || '1234',
+            accountType: bankDetails?.bankAccountType || 'checking',
+            isActive: true
+          });
+          await paymentAccount.save();
+          return paymentAccount;
+        });
+
+        const goalData = {
+          emailToken: 'test-email-token-schedule',
+          goalName: 'Test Schedule Goal',
+          targetAmount: 1000,
+          bankDetails: {
+            bankName: 'Chase Bank',
+            bankAccountName: 'Primary Checking',
+            bankLastFour: '1234',
+            bankAccountType: 'checking'
+          }
+        };
+
+        const response = await request(app)
+          .post('/api/savings-goal/guest')
+          .send(goalData)
+          .expect(201);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.savingsGoal.schedule).toBeDefined();
+        
+        const schedule = response.body.savingsGoal.schedule;
+        const startDate = new Date(schedule.startDate);
+        const dayOfMonth = schedule.dayOfMonth;
+        
+        // Verify dayOfMonth matches the UTC day of month from startDate
+        const startDateDayOfMonth = startDate.getUTCDate();
+        
+        expect(startDateDayOfMonth).toBe(dayOfMonth);
       });
 
       it('should return 400 if required fields are missing', async () => {

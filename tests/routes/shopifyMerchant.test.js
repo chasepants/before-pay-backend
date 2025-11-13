@@ -84,7 +84,9 @@ describe('Shopify Merchant Routes', () => {
 
   afterAll(async () => {
     await mongoose.disconnect();
-    await mongoServer.stop();
+    if (mongoServer) {
+      await mongoServer.stop();
+    }
   });
 
   beforeEach(async () => {
@@ -983,7 +985,7 @@ describe('Shopify Merchant Routes', () => {
       // Update the mock to use the correct user ID
       const auth = require('../../middleware/auth');
       auth.ensureAuthenticated.mockImplementation((req, res, next) => {
-        req.user = { id: user._id };
+        req.user = user; // Set full user object so route can access user.id
         next();
       });
 

@@ -100,12 +100,21 @@ describe('Auth Routes', () => {
     authToken = jwt.sign({ userId: testUser._id }, process.env.JWT_SECRET || 'test-secret');
     
     // Set up ensureAuthenticated mock for each test
-    ensureAuthenticated.mockImplementation((req, res, next) => {
+    ensureAuthenticated.mockImplementation(async (req, res, next) => {
       const token = req.headers.authorization?.split(' ')[1];
       if (token) {
         try {
           const decoded = jwt.verify(token, process.env.JWT_SECRET || 'test-secret');
-          req.user = { _id: decoded.userId };
+          // Fetch the actual user from database to match real middleware behavior
+          const user = await User.findById(decoded.userId);
+          // If user not found, still set req.user._id so route handlers can handle the error
+          // This matches real middleware behavior where it would return 401, but we want
+          // route handlers to handle "user not found" cases themselves
+          if (!user) {
+            req.user = { _id: decoded.userId };
+            return next(); // Let route handler decide the error response
+          }
+          req.user = user;
           next();
         } catch (err) {
           res.status(401).json({ error: 'Unauthorized' });

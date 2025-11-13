@@ -175,9 +175,9 @@ app.use('/api/validate-email-token', emailTokenRoutes); // Backward compatibilit
 // ============================================================================
 // Test & Cron Routes
 // ============================================================================
-app.use('/test', testRoutes);
+// All test routes under /api/test
 app.use('/api/test', testRoutes);
-app.use('/api', testRoutes); // For /api/cors-test and /api/savings-goal-test
+// Production cron routes (called by Vercel)
 app.use('/api/cron', cronRoutes);
 
 mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })

@@ -89,59 +89,59 @@ async function processScheduledPayments(date = null) {
         continue;
       }
 
-          // Validate required fields
-          const { savingsAmount, userId } = goal;
-          
-          // Get PaymentAccount to retrieve plaidProcessorToken
-          if (!goal.paymentAccountId) {
-            console.log(`Skipping goal ${goal._id}: no paymentAccountId`);
-            continue;
-          }
-          
-          const paymentAccount = await PaymentAccount.findById(goal.paymentAccountId);
-          if (!paymentAccount || !paymentAccount.plaidProcessorToken) {
-            console.log(`Skipping goal ${goal._id}: PaymentAccount not found or no plaidProcessorToken`);
-            continue;
-          }
-          
-          const plaidToken = paymentAccount.plaidProcessorToken;
+      // Validate required fields
+      const { savingsAmount, userId } = goal;
+      
+      // Get PaymentAccount to retrieve plaidProcessorToken
+      if (!goal.paymentAccountId) {
+        console.log(`Skipping goal ${goal._id}: no paymentAccountId`);
+        continue;
+      }
+      
+      const paymentAccount = await PaymentAccount.findById(goal.paymentAccountId);
+      if (!paymentAccount || !paymentAccount.plaidProcessorToken) {
+        console.log(`Skipping goal ${goal._id}: PaymentAccount not found or no plaidProcessorToken`);
+        continue;
+      }
+      
+      const plaidToken = paymentAccount.plaidProcessorToken;
 
-          // Determine payment type based on goal type
-          let paymentType;
+      // Determine payment type based on goal type
+      let paymentType;
 
-          if (goal instanceof ShopifySavingsGoal) {
-            // Shopify installment - use merchant account
-            // Check if installment already processed today
-            if (hasProcessInstallment(goal, date)) {
-              console.log(`Installment already processed for goal: ${goal._id}`);
-              continue;
-            }
+      if (goal instanceof ShopifySavingsGoal) {
+        // Shopify installment - use merchant account
+        // Check if installment already processed today
+        if (hasProcessInstallment(goal, date)) {
+          console.log(`Installment already processed for goal: ${goal._id}`);
+          continue;
+        }
 
-            const merchant = await ShopifyMerchant.findOne({ shopDomain: goal.shopDomain });
-            if (!merchant) {
-              console.warn(`Merchant not found for shopDomain: ${goal.shopDomain}`);
-              continue;
-            }
+        const merchant = await ShopifyMerchant.findOne({ shopDomain: goal.shopDomain });
+        if (!merchant) {
+          console.warn(`Merchant not found for shopDomain: ${goal.shopDomain}`);
+          continue;
+        }
 
-            if (!merchant.unitAccountId) {
-              console.log(`Merchant onboarding not complete for shopDomain: ${goal.shopDomain}`);
-              continue;
-            }
+        if (!merchant.unitAccountId) {
+          console.log(`Merchant onboarding not complete for shopDomain: ${goal.shopDomain}`);
+          continue;
+        }
 
-            paymentType = 'shopify_installment';
-          } else if (goal instanceof ManualSavingsGoal) {
-            // Manual savings goal - use user account
-            const user = await User.findById(userId);
-            if (!user || !user.unitAccountId) {
-              console.log(`User not found or no unitAccountId for goal: ${goal._id}`);
-              continue;
-            }
+        paymentType = 'shopify_installment';
+      } else if (goal instanceof ManualSavingsGoal) {
+        // Manual savings goal - use user account
+        const user = await User.findById(userId);
+        if (!user || !user.unitAccountId) {
+          console.log(`User not found or no unitAccountId for goal: ${goal._id}`);
+          continue;
+        }
 
-            paymentType = 'manual_installment';
-          } else {
-            console.log(`Unknown goal type for goal: ${goal._id}`);
-            continue;
-          }
+        paymentType = 'manual_installment';
+      } else {
+        console.log(`Unknown goal type for goal: ${goal._id}`);
+        continue;
+      }
 
       // Create payment using SavingsGoalService
       await savingsGoalService.createPaymentForGoal(goal, {

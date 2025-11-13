@@ -247,35 +247,32 @@ describe('SavingsGoalService', () => {
       ).rejects.toThrow('does not have a unitAccountId');
     });
 
-    it('should throw error if Shopify goal user has no shopifyMerchantId', async () => {
+    it('should throw error if Shopify goal has no shopDomain', async () => {
       const goal = new ShopifySavingsGoal({
         userId: testUser._id,
         goalName: 'Shopify Goal',
         targetAmount: 1000,
-        shopDomain: 'test-shop.myshopify.com',
+        shopDomain: null,
         checkoutCartId: new mongoose.Types.ObjectId()
       });
 
       await expect(
         savingsGoalService.getUnitAccountIdForGoal(goal)
-      ).rejects.toThrow('does not have a shopifyMerchantId');
+      ).rejects.toThrow('ShopifySavingsGoal missing shopDomain');
     });
 
-    it('should throw error if ShopifyMerchant not found', async () => {
-      testUser.shopifyMerchantId = new mongoose.Types.ObjectId();
-      await testUser.save();
-
+    it('should throw error if ShopifyMerchant not found for shopDomain', async () => {
       const goal = new ShopifySavingsGoal({
         userId: testUser._id,
         goalName: 'Shopify Goal',
         targetAmount: 1000,
-        shopDomain: 'test-shop.myshopify.com',
+        shopDomain: 'nonexistent-shop.myshopify.com',
         checkoutCartId: new mongoose.Types.ObjectId()
       });
 
       await expect(
         savingsGoalService.getUnitAccountIdForGoal(goal)
-      ).rejects.toThrow('Merchant not found');
+      ).rejects.toThrow('Merchant not found for shopDomain');
     });
   });
 

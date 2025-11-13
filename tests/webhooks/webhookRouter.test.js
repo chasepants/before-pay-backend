@@ -40,7 +40,7 @@ describe('Webhook Router', () => {
 
     app = express();
     app.use(express.json());
-    app.post('/webhook', webhook);
+    app.post('/api/webhooks/unit', webhook);
   });
 
   afterAll(async () => {
@@ -64,7 +64,7 @@ describe('Webhook Router', () => {
     });
   });
 
-  describe('POST /webhook', () => {
+  describe('POST /api/webhooks/unit', () => {
     it('should handle valid webhook payload', async () => {
       const payload = {
         data: [{
@@ -85,7 +85,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -129,7 +129,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -156,7 +156,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .set('Content-Type', 'application/json')
         .send(JSON.stringify(payload))
         .expect(200);
@@ -172,7 +172,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(400);
 
@@ -181,7 +181,7 @@ describe('Webhook Router', () => {
 
     it('should handle invalid JSON', async () => {
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send('invalid json')
         .expect(400);
 
@@ -199,7 +199,7 @@ describe('Webhook Router', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -228,7 +228,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -255,7 +255,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -282,7 +282,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -311,7 +311,7 @@ describe('Webhook Router', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -377,7 +377,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -399,7 +399,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -421,7 +421,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -443,7 +443,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -465,7 +465,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -487,7 +487,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 
@@ -509,7 +509,7 @@ describe('Webhook Router', () => {
       };
 
       const response = await request(app)
-        .post('/webhook')
+        .post('/api/webhooks/unit')
         .send(payload)
         .expect(200);
 

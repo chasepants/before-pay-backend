@@ -386,5 +386,85 @@ router.delete('/cleanup-user', requireTestEnvironment, async (req, res) => {
   }
 });
 
+// Test-only endpoint to get user by email
+router.get('/user-by-email', requireTestEnvironment, async (req, res) => {
+  try {
+    const User = require('../models/User');
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ 
+      success: true,
+      user: {
+        _id: user._id,
+        email: user.email,
+        unitApplicationId: user.unitApplicationId,
+        unitCustomerId: user.unitCustomerId,
+        status: user.status
+      }
+    });
+  } catch (error) {
+    console.error('[TEST] Get user by email failed:', error);
+    res.status(500).json({ 
+      error: 'Failed to get user',
+      message: error.message
+    });
+  }
+});
+
+// Test-only endpoint to approve a Unit application
+router.post('/approve-application', requireTestEnvironment, async (req, res) => {
+  try {
+    const axios = require('axios');
+    const { applicationId } = req.body;
+
+    if (!applicationId) {
+      return res.status(400).json({ error: 'Application ID is required' });
+    }
+
+    const response = await axios.post(
+      `https://api.s.unit.sh/sandbox/applications/${applicationId}/approve`,
+      {
+        data: {
+          type: 'applicationApprove',
+          attributes: {
+            reason: 'sandbox'
+          }
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/vnd.api+json',
+          'Authorization': `Bearer ${process.env.UNIT_API_KEY}`,
+          'X-Accept-Version': 'V2024_06'
+        }
+      }
+    );
+
+    console.log(`[TEST] Approved application: ${applicationId}`);
+
+    res.json({ 
+      success: true,
+      message: `Application ${applicationId} approved successfully`,
+      data: response.data
+    });
+  } catch (error) {
+    console.error('[TEST] Approve application failed:', error.response?.data || error.message);
+    res.status(500).json({ 
+      error: 'Failed to approve application',
+      message: error.response?.data?.errors?.[0]?.detail || error.message
+    });
+  }
+});
+
 module.exports = router;
 

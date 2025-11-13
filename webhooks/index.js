@@ -289,16 +289,21 @@ async function handleMerchantApplicationApproved(eventData) {
     return;
   }
 
+  // When application is approved, merchant onboarding is still in progress
+  // until the deposit account is created (in handleMerchantCustomerCreated)
+  // So we keep onboardingStatus as 'in_progress' if not already completed
   if (merchant.onboardingStatus !== 'completed') {
     merchant.onboardingStatus = 'in_progress';
     await merchant.save();
   }
 
+  // User status can be approved when application is approved
+  // Merchant onboarding status remains 'in_progress' until deposit account is created
   const user = await User.findOne({ shopifyMerchantId: merchantId });
   if (user) {
     user.status = 'approved';
     await user.save();
-    console.log(`User ${user.email} status updated to approved for merchant ${merchant.shopifyShopId}`);
+    console.log(`User ${user.email} status updated to approved for merchant ${merchant.shopifyShopId} (onboarding still in progress)`);
   } else {
     console.warn(`No user found for merchantId: ${merchantId}`);
   }
