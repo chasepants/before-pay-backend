@@ -5,12 +5,12 @@ const cors = require('cors');
 // Set up environment variables for testing
 process.env.CRON_SECRET = 'Beforepay1234!';
 
-// Mock the process-payments module
-jest.mock('../../cron/process-payments', () => ({
+// Mock the process-scheduled-payments module
+jest.mock('../../cron/process-scheduled-payments', () => ({
   processScheduledPayments: jest.fn()
 }));
 
-const { processScheduledPayments } = require('../../cron/process-payments');
+const { processScheduledPayments } = require('../../cron/process-scheduled-payments');
 
 describe('Cron Routes', () => {
   let app;

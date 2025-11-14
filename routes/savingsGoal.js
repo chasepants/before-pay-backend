@@ -6,8 +6,10 @@ const User = require('../models/User');
 const CheckoutCart = require('../models/CheckoutCart');
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const PaymentAccount = require('../models/PaymentAccount');
+const Payment = require('../models/Payment');
 require('dotenv').config();
 const { generateImage } = require('../services/xaiService');
+const { calculateNextRunDate } = require('../utils/dateCalculations');
 const { searchProducts } = require('../services/webSearchService');
 const { ensureAuthenticated, requireSavingsAccountUser } = require('../middleware/auth');
 const { verifyShopifySessionToken } = require('../middleware/shopifyAuth');
@@ -70,6 +72,9 @@ router.get('/', ensureAuthenticated, async (req, res) => {
         }
       }
       
+      // Calculate next run date
+      goalObj.nextRunDate = calculateNextRunDate(goal);
+      
       return goalObj;
     }));
     
@@ -131,19 +136,22 @@ router.get('/merchant/:shopDomain', ensureAuthenticated, async (req, res) => {
         }
       }
       
+      // Calculate next run date
+      goalObj.nextRunDate = calculateNextRunDate(goal);
+      
       return goalObj;
     }));
     
     // Calculate status for each goal
-    const goalsWithStatus = goalsWithCarts.map(goal => {
-      const isCompleted = goal.currentAmount >= goal.targetAmount;
-      const isOngoing = goal.currentAmount > 0 && goal.currentAmount < goal.targetAmount;
-      const isNotStarted = goal.currentAmount === 0;
+    const goalsWithStatus = goalsWithCarts.map(goalObj => {
+      const isCompleted = goalObj.currentAmount >= goalObj.targetAmount;
+      const isOngoing = goalObj.currentAmount > 0 && goalObj.currentAmount < goalObj.targetAmount;
+      const isNotStarted = goalObj.currentAmount === 0;
       
       return {
-        ...goal.toObject(),
+        ...goalObj,
         status: isCompleted ? 'completed' : (isOngoing ? 'ongoing' : 'not_started'),
-        progressPercentage: Math.round((goal.currentAmount / goal.targetAmount) * 100)
+        progressPercentage: Math.round((goalObj.currentAmount / goalObj.targetAmount) * 100)
       };
     });
     
@@ -185,6 +193,9 @@ router.get('/:id', ensureAuthenticated, async (req, res) => {
         };
       }
     }
+    
+    // Calculate next run date
+    goalObj.nextRunDate = calculateNextRunDate(goal);
     
     res.json(goalObj);
   } catch (error) {
@@ -530,6 +541,18 @@ router.patch('/:id/pause', ensureAuthenticated, async (req, res) => {
   const { isPaused } = req.body;
   console.log(id, isPaused)
   try {
+    // If trying to unpause (isPaused: false), check if there's a refund
+    if (!isPaused) {
+      const hasRefund = await Payment.findOne({
+        savingsGoalId: id,
+        paymentType: 'refund'
+      });
+      
+      if (hasRefund) {
+        return res.status(400).json({ error: 'Refunded savings goals can not be resumed' });
+      }
+    }
+    
     const updated = await SavingsGoal.findOneAndUpdate(
       { _id: id, userId: req.user._id },
       { $set: { isPaused: !!isPaused } },
@@ -697,7 +720,6 @@ router.post('/:id/refund', ensureAuthenticated, async (req, res) => {
     }
     
     // Get PaymentAccount to retrieve plaidProcessorToken
-    const PaymentAccount = require('../models/PaymentAccount');
     const paymentAccount = await PaymentAccount.findById(goal.paymentAccountId);
     if (!paymentAccount || !paymentAccount.plaidProcessorToken) {
       return res.status(400).json({ error: 'Payment account not found or invalid.' });
@@ -863,7 +885,6 @@ router.put('/:id/schedule', ensureAuthenticated, async (req, res) => {
       return res.status(400).json({ error: 'No payment account linked. Please link a bank account first.' });
     }
     
-    const PaymentAccount = require('../models/PaymentAccount');
     const existingPaymentAccount = await PaymentAccount.findById(savingsGoal.paymentAccountId);
     if (!existingPaymentAccount || !existingPaymentAccount.plaidProcessorToken) {
       return res.status(400).json({ error: 'Payment account not found or invalid.' });

@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const { processScheduledPayments } = require('../cron/process-scheduled-payments');
 const { processAbandonedCarts } = require('../cron/abandoned-carts');
+const User = require('../models/User');
+const ShopifyMerchant = require('../models/ShopifyMerchant');
+const CheckoutCart = require('../models/CheckoutCart');
+const EmailToken = require('../models/EmailToken');
+const SavingsGoal = require('../models/SavingsGoal');
 
 /**
  * Check if current environment is production
@@ -248,9 +253,6 @@ router.post('/clear-payment', requireTestEnvironment, async (req, res) => {
 // Test-only endpoint to set up abandoned cart and generate email token
 router.post('/setup-abandoned-cart', requireTestEnvironment, async (req, res) => {
   try {
-    const CheckoutCart = require('../models/CheckoutCart');
-    const ShopifyMerchant = require('../models/ShopifyMerchant');
-    const EmailToken = require('../models/EmailToken');
     
     // Ensure merchant exists with abandoned cart emails enabled
     const shopDomain = 'stashpay-2.myshopify.com';
@@ -342,7 +344,6 @@ router.post('/setup-abandoned-cart', requireTestEnvironment, async (req, res) =>
 // Test-only endpoint to clean up user data (DB and Firebase)
 router.delete('/cleanup-user', requireTestEnvironment, async (req, res) => {
   try {
-    const User = require('../models/User');
     const firebaseService = require('../services/firebaseService');
     const { email } = req.body;
 
@@ -354,6 +355,23 @@ router.delete('/cleanup-user', requireTestEnvironment, async (req, res) => {
     const user = await User.findOne({ email });
     
     if (user) {
+      // Find and cleanup any Shopify savings goals and their checkout carts
+      const shopifyGoals = await SavingsGoal.find({ 
+        userId: user._id,
+        __t: 'ShopifySavingsGoal'
+      });
+      
+      for (const goal of shopifyGoals) {
+        if (goal.checkoutCartId) {
+          // Reset checkout cart orderId to empty string
+          await CheckoutCart.updateOne(
+            { _id: goal.checkoutCartId },
+            { $set: { orderId: '' } }
+          );
+          console.log(`[TEST] Reset orderId for checkout cart: ${goal.checkoutCartId}`);
+        }
+      }
+
       // Delete from Firebase if uid exists
       if (user.firebaseUid) {
         try {
@@ -386,10 +404,77 @@ router.delete('/cleanup-user', requireTestEnvironment, async (req, res) => {
   }
 });
 
+// Test-only endpoint to reset checkout cart orderId
+router.post('/reset-checkout-cart', requireTestEnvironment, async (req, res) => {
+  try {
+    const { checkoutId } = req.body;
+
+    if (!checkoutId) {
+      return res.status(400).json({ error: 'Checkout ID is required' });
+    }
+
+    const cart = await CheckoutCart.findOne({ checkoutId });
+    
+    if (!cart) {
+      return res.status(404).json({ error: 'Checkout cart not found' });
+    }
+
+    cart.orderId = '';
+    await cart.save();
+
+    console.log(`[TEST] Reset orderId for checkout cart: ${checkoutId}`);
+
+    res.json({ 
+      success: true,
+      message: `Checkout cart ${checkoutId} orderId reset`
+    });
+  } catch (error) {
+    console.error('[TEST] Reset checkout cart failed:', error);
+    res.status(500).json({ 
+      error: 'Failed to reset checkout cart',
+      message: error.message
+    });
+  }
+});
+
+// Test-only endpoint to reset EmailToken to unused state
+router.post('/reset-email-token', requireTestEnvironment, async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: 'Token is required' });
+    }
+
+    const emailToken = await EmailToken.findOne({ token });
+    
+    if (!emailToken) {
+      return res.status(404).json({ error: 'Email token not found' });
+    }
+
+    emailToken.used = false;
+    // Set expiresAt to 24 hours from now to ensure token is valid
+    emailToken.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await emailToken.save();
+
+    console.log(`[TEST] Reset email token to unused: ${token}, expiresAt: ${emailToken.expiresAt}`);
+
+    res.json({ 
+      success: true,
+      message: `Email token ${token} reset to unused state`
+    });
+  } catch (error) {
+    console.error('[TEST] Reset email token failed:', error);
+    res.status(500).json({ 
+      error: 'Failed to reset email token',
+      message: error.message
+    });
+  }
+});
+
 // Test-only endpoint to get user by email
 router.get('/user-by-email', requireTestEnvironment, async (req, res) => {
   try {
-    const User = require('../models/User');
     const { email } = req.query;
 
     if (!email) {
@@ -416,6 +501,53 @@ router.get('/user-by-email', requireTestEnvironment, async (req, res) => {
     console.error('[TEST] Get user by email failed:', error);
     res.status(500).json({ 
       error: 'Failed to get user',
+      message: error.message
+    });
+  }
+});
+
+// Test-only endpoint to get merchant user by merchant ID
+router.get('/merchant-user', requireTestEnvironment, async (req, res) => {
+  try {
+    const { merchantId } = req.query;
+
+    if (!merchantId) {
+      return res.status(400).json({ error: 'Merchant ID is required' });
+    }
+
+    const merchant = await ShopifyMerchant.findById(merchantId);
+    
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    const user = await User.findOne({ shopifyMerchantId: merchantId });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found for this merchant' });
+    }
+
+    res.json({ 
+      success: true,
+      user: {
+        _id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        userType: user.userType,
+        shopifyMerchantId: user.shopifyMerchantId,
+        status: user.status
+      },
+      merchant: {
+        _id: merchant._id,
+        shopDomain: merchant.shopDomain,
+        shopifyShopId: merchant.shopifyShopId
+      }
+    });
+  } catch (error) {
+    console.error('[TEST] Get merchant user failed:', error);
+    res.status(500).json({ 
+      error: 'Failed to get merchant user',
       message: error.message
     });
   }

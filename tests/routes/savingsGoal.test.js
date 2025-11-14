@@ -11,6 +11,7 @@ const ShopifyMerchant = require('../../models/ShopifyMerchant');
 const CheckoutCart = require('../../models/CheckoutCart');
 const EmailToken = require('../../models/EmailToken');
 const PaymentAccount = require('../../models/PaymentAccount');
+const Payment = require('../../models/Payment');
 const { generateImage, enhanceDescription } = require('../../services/xaiService');
 const { searchProducts } = require('../../services/webSearchService');
 
@@ -103,6 +104,8 @@ describe('SavingsGoal Routes', () => {
 
     // Reset all mocks before each test
     jest.clearAllMocks();
+    // Restore any mocked model methods
+    jest.restoreAllMocks();
 
     testUser = new User({
       email: 'test@example.com',
@@ -226,16 +229,18 @@ describe('SavingsGoal Routes', () => {
 
     it('should return 500 when database error occurs', async () => {
       const originalFind = SavingsGoal.find;
-      SavingsGoal.find = jest.fn().mockRejectedValue(new Error('Database connection failed'));
+      try {
+        SavingsGoal.find = jest.fn().mockRejectedValue(new Error('Database connection failed'));
 
-      const response = await request(app)
-        .get('/api/savings-goal')
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(500);
+        const response = await request(app)
+          .get('/api/savings-goal')
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to fetch savings goals');
-
-      SavingsGoal.find = originalFind;
+        expect(response.body.error).toBe('Failed to fetch savings goals');
+      } finally {
+        SavingsGoal.find = originalFind;
+      }
     });
   });
 
@@ -337,16 +342,18 @@ describe('SavingsGoal Routes', () => {
 
     it('should return 500 when database error occurs', async () => {
       const originalFindOne = SavingsGoal.findOne;
-      SavingsGoal.findOne = jest.fn().mockRejectedValue(new Error('Database connection failed'));
+      try {
+        SavingsGoal.findOne = jest.fn().mockRejectedValue(new Error('Database connection failed'));
 
-      const response = await request(app)
-        .get('/api/savings-goal/507f1f77bcf86cd799439011')
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(500);
+        const response = await request(app)
+          .get('/api/savings-goal/507f1f77bcf86cd799439011')
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to fetch savings goal');
-
-      SavingsGoal.findOne = originalFindOne;
+        expect(response.body.error).toBe('Failed to fetch savings goal');
+      } finally {
+        SavingsGoal.findOne = originalFindOne;
+      }
     });
 
     it('should return 400 when invalid ObjectId is provided', async () => {
@@ -583,21 +590,23 @@ describe('SavingsGoal Routes', () => {
     it('should return 500 when database save fails', async () => {
       // Mock a database error
       const originalSave = SavingsGoal.prototype.save;
-      SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database save failed'));
+      try {
+        SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database save failed'));
 
-      const response = await request(app)
-        .post('/api/savings-goal')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({
-          goalName: 'Test Goal',
-          targetAmount: 1000
-        })
-        .expect(500);
+        const response = await request(app)
+          .post('/api/savings-goal')
+          .set('Authorization', `Bearer ${authToken}`)
+          .send({
+            goalName: 'Test Goal',
+            targetAmount: 1000
+          })
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to create savings goal');
-
-      // Restore original function
-      SavingsGoal.prototype.save = originalSave;
+        expect(response.body.error).toBe('Failed to create savings goal');
+      } finally {
+        // Restore original function
+        SavingsGoal.prototype.save = originalSave;
+      }
     });
 
     it('should handle complex product data structure', async () => {
@@ -750,17 +759,19 @@ describe('SavingsGoal Routes', () => {
 
       // Mock a database error
       const originalDeleteOne = SavingsGoal.deleteOne;
-      SavingsGoal.deleteOne = jest.fn().mockRejectedValue(new Error('Database delete failed'));
+      try {
+        SavingsGoal.deleteOne = jest.fn().mockRejectedValue(new Error('Database delete failed'));
 
-      const response = await request(app)
-        .delete(`/api/savings-goal/${testGoal._id}`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(500);
+        const response = await request(app)
+          .delete(`/api/savings-goal/${testGoal._id}`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to delete savings goal');
-
-      // Restore original function
-      SavingsGoal.deleteOne = originalDeleteOne;
+        expect(response.body.error).toBe('Failed to delete savings goal');
+      } finally {
+        // Restore original function
+        SavingsGoal.deleteOne = originalDeleteOne;
+      }
 
       // Clean up the test goal
       await SavingsGoal.deleteOne({ _id: testGoal._id });
@@ -1095,18 +1106,20 @@ describe('SavingsGoal Routes', () => {
 
       // Mock a database error
       const originalSave = SavingsGoal.prototype.save;
-      SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database save failed'));
+      try {
+        SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database save failed'));
 
-      const response = await request(app)
-        .put(`/api/savings-goal/${testGoal._id}`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ goalName: 'Updated Goal' })
-        .expect(500);
+        const response = await request(app)
+          .put(`/api/savings-goal/${testGoal._id}`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .send({ goalName: 'Updated Goal' })
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to update savings goal');
-
-      // Restore original function
-      SavingsGoal.prototype.save = originalSave;
+        expect(response.body.error).toBe('Failed to update savings goal');
+      } finally {
+        // Restore original function
+        SavingsGoal.prototype.save = originalSave;
+      }
 
       // Clean up
       await SavingsGoal.deleteOne({ _id: testGoal._id });
@@ -1390,18 +1403,20 @@ describe('SavingsGoal Routes', () => {
 
       // Mock a database error for findOneAndUpdate
       const originalFindOneAndUpdate = SavingsGoal.findOneAndUpdate;
-      SavingsGoal.findOneAndUpdate = jest.fn().mockRejectedValue(new Error('Database update failed'));
+      try {
+        SavingsGoal.findOneAndUpdate = jest.fn().mockRejectedValue(new Error('Database update failed'));
 
-      const response = await request(app)
-        .patch(`/api/savings-goal/${testGoal._id}/pause`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ isPaused: true })
-        .expect(500);
+        const response = await request(app)
+          .patch(`/api/savings-goal/${testGoal._id}/pause`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .send({ isPaused: true })
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to update pause state');
-
-      // Restore original function
-      SavingsGoal.findOneAndUpdate = originalFindOneAndUpdate;
+        expect(response.body.error).toBe('Failed to update pause state');
+      } finally {
+        // Restore original function
+        SavingsGoal.findOneAndUpdate = originalFindOneAndUpdate;
+      }
 
       // Clean up
       await SavingsGoal.deleteOne({ _id: testGoal._id });
@@ -1434,6 +1449,118 @@ describe('SavingsGoal Routes', () => {
       expect(updatedGoal.isPaused).toBe(true);
 
       // Clean up
+      await SavingsGoal.deleteOne({ _id: testGoal._id });
+    });
+
+    it('should return 400 when trying to unpause a refunded savings goal', async () => {
+      // Create a test savings goal (initially paused)
+      const testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal with Refund',
+        targetAmount: 1000,
+        currentAmount: 0,
+        isPaused: true
+      });
+      await testGoal.save();
+
+      // Create a PaymentAccount for the goal
+      const paymentAccount = new PaymentAccount({
+        userId: testUser._id,
+        plaidProcessorToken: 'test-token',
+        accountType: 'checking',
+        isActive: true
+      });
+      await paymentAccount.save();
+
+      // Create a refund payment for this goal
+      const refundPayment = new Payment({
+        savingsGoalId: testGoal._id,
+        userId: testUser._id,
+        paymentAccountId: paymentAccount._id,
+        paymentId: 'refund-payment-123',
+        direction: 'Credit',
+        amount: 100,
+        status: 'completed',
+        paymentType: 'refund',
+        description: 'Refund for Shopify Order',
+        date: new Date()
+      });
+      await refundPayment.save();
+
+      // Try to unpause the goal
+      const updateData = { isPaused: false };
+
+      const response = await request(app)
+        .patch(`/api/savings-goal/${testGoal._id}/pause`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(updateData)
+        .expect(400);
+
+      expect(response.body.error).toBe('Refunded savings goals can not be resumed');
+
+      // Verify the goal is still paused in the database
+      const goalAfterAttempt = await SavingsGoal.findById(testGoal._id);
+      expect(goalAfterAttempt.isPaused).toBe(true);
+
+      // Clean up
+      await Payment.deleteOne({ _id: refundPayment._id });
+      await PaymentAccount.deleteOne({ _id: paymentAccount._id });
+      await SavingsGoal.deleteOne({ _id: testGoal._id });
+    });
+
+    it('should allow pausing a refunded savings goal (pause is allowed, only unpause is blocked)', async () => {
+      // Create a test savings goal (initially not paused)
+      const testGoal = new SavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal with Refund - Pause Test',
+        targetAmount: 1000,
+        currentAmount: 0,
+        isPaused: false
+      });
+      await testGoal.save();
+
+      // Create a PaymentAccount for the goal
+      const paymentAccount = new PaymentAccount({
+        userId: testUser._id,
+        plaidProcessorToken: 'test-token',
+        accountType: 'checking',
+        isActive: true
+      });
+      await paymentAccount.save();
+
+      // Create a refund payment for this goal
+      const refundPayment = new Payment({
+        savingsGoalId: testGoal._id,
+        userId: testUser._id,
+        paymentAccountId: paymentAccount._id,
+        paymentId: 'refund-payment-456',
+        direction: 'Credit',
+        amount: 100,
+        status: 'completed',
+        paymentType: 'refund',
+        description: 'Refund for Shopify Order',
+        date: new Date()
+      });
+      await refundPayment.save();
+
+      // Pausing should still work (only unpausing is blocked)
+      const updateData = { isPaused: true };
+
+      const response = await request(app)
+        .patch(`/api/savings-goal/${testGoal._id}/pause`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(updateData)
+        .expect(200);
+
+      expect(response.body.isPaused).toBe(true);
+
+      // Verify it was saved to database
+      const updatedGoal = await SavingsGoal.findById(testGoal._id);
+      expect(updatedGoal.isPaused).toBe(true);
+
+      // Clean up
+      await Payment.deleteOne({ _id: refundPayment._id });
+      await PaymentAccount.deleteOne({ _id: paymentAccount._id });
       await SavingsGoal.deleteOne({ _id: testGoal._id });
     });
   });
@@ -2038,19 +2165,21 @@ describe('SavingsGoal Routes', () => {
 
       // Mock findOne to return our error goal
       const originalFindOne = SavingsGoal.findOne;
-      SavingsGoal.findOne = jest.fn().mockResolvedValue(errorGoal);
+      try {
+        SavingsGoal.findOne = jest.fn().mockResolvedValue(errorGoal);
 
-      const response = await request(app)
-        .post(`/api/savings-goal/${testGoal._id}/save-product`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ productData })
-        .expect(500);
+        const response = await request(app)
+          .post(`/api/savings-goal/${testGoal._id}/save-product`)
+          .set('Authorization', `Bearer ${authToken}`)
+          .send({ productData })
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to save product');
-
-      // Restore the original methods
-      SavingsGoal.findOne = originalFindOne;
-      errorGoal.save = originalSave;
+        expect(response.body.error).toBe('Failed to save product');
+      } finally {
+        // Restore the original methods
+        SavingsGoal.findOne = originalFindOne;
+        errorGoal.save = originalSave;
+      }
     });
   });
 
@@ -2280,43 +2409,46 @@ describe('SavingsGoal Routes', () => {
     it('should handle GET / with database error', async () => {
       // Mock SavingsGoal.find to throw an error
       const originalFind = SavingsGoal.find;
-      SavingsGoal.find = jest.fn().mockRejectedValue(new Error('Database error'));
+      try {
+        SavingsGoal.find = jest.fn().mockRejectedValue(new Error('Database error'));
 
-      const response = await request(app)
-        .get('/api/savings-goal/')
-        .set('Authorization', `Bearer ${authToken}`)
-        .expect(500);
+        const response = await request(app)
+          .get('/api/savings-goal/')
+          .set('Authorization', `Bearer ${authToken}`)
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to fetch savings goals');
-
-      // Restore original find method
-      SavingsGoal.find = originalFind;
+        expect(response.body.error).toBe('Failed to fetch savings goals');
+      } finally {
+        // Restore original find method
+        SavingsGoal.find = originalFind;
+      }
     });
 
 
     it('should handle POST / with database error', async () => {
       // Mock SavingsGoal.save to throw an error
       const originalSave = SavingsGoal.prototype.save;
-      SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
+      try {
+        SavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
 
-      const goalData = {
-        goalName: 'Test Goal',
-        targetAmount: 100,
-        productLink: 'https://example.com',
-        title: 'Test Product',
-        price: 100
-      };
+        const goalData = {
+          goalName: 'Test Goal',
+          targetAmount: 100,
+          productLink: 'https://example.com',
+          title: 'Test Product',
+          price: 100
+        };
 
-      const response = await request(app)
-        .post('/api/savings-goal/')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(goalData)
-        .expect(500);
+        const response = await request(app)
+          .post('/api/savings-goal/')
+          .set('Authorization', `Bearer ${authToken}`)
+          .send(goalData)
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to create savings goal');
-
-      // Restore original save method
-      SavingsGoal.prototype.save = originalSave;
+        expect(response.body.error).toBe('Failed to create savings goal');
+      } finally {
+        SavingsGoal.prototype.save = originalSave;
+      }
     });
 
 
@@ -2546,24 +2678,26 @@ describe('SavingsGoal Routes', () => {
 
       // Mock ShopifySavingsGoal save to throw an error
       const originalSave = ShopifySavingsGoal.prototype.save;
-      ShopifySavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
+      try {
+        ShopifySavingsGoal.prototype.save = jest.fn().mockRejectedValue(new Error('Database error'));
 
-      const goalData = {
-        goalName: 'Test Goal',
-        targetAmount: 100,
-        checkoutCartId: cart._id.toString(),
-        shopDomain: 'test-shop.myshopify.com'
-      };
+        const goalData = {
+          goalName: 'Test Goal',
+          targetAmount: 100,
+          checkoutCartId: cart._id.toString(),
+          shopDomain: 'test-shop.myshopify.com'
+        };
 
-      const response = await request(app)
-        .post('/api/savings-goal/shopify')
-        .send(goalData)
-        .expect(500);
+        const response = await request(app)
+          .post('/api/savings-goal/shopify')
+          .send(goalData)
+          .expect(500);
 
-      expect(response.body.error).toBe('Failed to create savings goal');
-
-      // Restore original method
-      ShopifySavingsGoal.prototype.save = originalSave;
+        expect(response.body.error).toBe('Failed to create savings goal');
+      } finally {
+        // Restore original method
+        ShopifySavingsGoal.prototype.save = originalSave;
+      }
     });
 
     it('should handle invalid targetAmount gracefully', async () => {

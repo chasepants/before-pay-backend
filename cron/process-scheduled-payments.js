@@ -5,6 +5,7 @@ const ShopifyMerchant = require('../models/ShopifyMerchant');
 const SavingsGoal = require('../models/SavingsGoal');
 const { ShopifySavingsGoal, ManualSavingsGoal } = require('../models/SavingsGoal');
 const PaymentAccount = require('../models/PaymentAccount');
+const Payment = require('../models/Payment');
 const SavingsGoalService = require('../services/savingsGoalService');
 
 async function connectDB() {
@@ -25,22 +26,16 @@ function todayPartsUTC(date = null) {
 }
 
 /**
- * Check if a Shopify goal has already processed an installment for the given date
- * @param {Object} goal - ShopifySavingsGoal instance
+ * Check if a payment already exists for a goal on a given date
+ * Uses Payment model as source of truth for idempotency
+ * @param {ObjectId} goalId - SavingsGoal ID
  * @param {Date} date - Date to check
- * @returns {Boolean}
+ * @param {String} paymentType - Payment type ('manual_installment' or 'shopify_installment')
+ * @returns {Promise<Boolean>}
  */
-function hasProcessInstallment(goal, date) {
-  if (!goal.transfers || goal.transfers.length === 0) {
-    return false;
-  }
-
-  if (!date) {
-    console.warn('No date given to hasProcessInstallment');
-    return false;
-  }
-
-  const checkDate = new Date(date);
+async function hasExistingPayment(goalId, date, paymentType) {
+  // If no date provided, use today
+  const checkDate = date ? new Date(date) : new Date();
   const checkDateStart = new Date(Date.UTC(
     checkDate.getUTCFullYear(),
     checkDate.getUTCMonth(),
@@ -50,12 +45,18 @@ function hasProcessInstallment(goal, date) {
   const checkDateEnd = new Date(checkDateStart);
   checkDateEnd.setUTCHours(23, 59, 59, 999);
 
-  const hasTransferToday = goal.transfers.some(transfer => {
-    const transferDate = new Date(transfer.date);
-    return transferDate >= checkDateStart && transferDate <= checkDateEnd && transfer.status !== "failed";
+  // Check for existing payment on this date with same paymentType
+  // Block on all statuses (including failed/canceled) - retries should be handled separately
+  const existingPayment = await Payment.findOne({
+    savingsGoalId: goalId,
+    paymentType: paymentType,
+    date: {
+      $gte: checkDateStart,
+      $lte: checkDateEnd
+    }
   });
 
-  return hasTransferToday;
+  return !!existingPayment;
 }
 
 /**
@@ -111,9 +112,9 @@ async function processScheduledPayments(date = null) {
 
       if (goal instanceof ShopifySavingsGoal) {
         // Shopify installment - use merchant account
-        // Check if installment already processed today
-        if (hasProcessInstallment(goal, date)) {
-          console.log(`Installment already processed for goal: ${goal._id}`);
+        // Check if payment already exists for this date (idempotency check)
+        if (await hasExistingPayment(goal._id, date, 'shopify_installment')) {
+          console.log(`Payment already exists for Shopify goal: ${goal._id}`);
           continue;
         }
 
@@ -131,6 +132,12 @@ async function processScheduledPayments(date = null) {
         paymentType = 'shopify_installment';
       } else if (goal instanceof ManualSavingsGoal) {
         // Manual savings goal - use user account
+        // Check if payment already exists for this date (idempotency check)
+        if (await hasExistingPayment(goal._id, date, 'manual_installment')) {
+          console.log(`Payment already exists for manual goal: ${goal._id}`);
+          continue;
+        }
+
         const user = await User.findById(userId);
         if (!user || !user.unitAccountId) {
           console.log(`User not found or no unitAccountId for goal: ${goal._id}`);
@@ -163,5 +170,5 @@ async function processScheduledPayments(date = null) {
   }
 }
 
-module.exports = { processScheduledPayments, hasProcessInstallment };
+module.exports = { processScheduledPayments, hasExistingPayment };
 
