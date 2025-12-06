@@ -7,6 +7,7 @@ const CheckoutCart = require('../models/CheckoutCart');
 const User = require('../models/User');
 const ShopifyMerchant = require('../models/ShopifyMerchant');
 const { shopifyApi, ApiVersion } = require('@shopify/shopify-api');
+const emailService = require('./emailService');
 
 class SavingsGoalService {
   constructor() {
@@ -263,14 +264,14 @@ class SavingsGoalService {
       return;
     }
 
-      // Regular payment effects (use direction instead of type)
-      if (payment.direction === 'Debit') {
-        // Debit increases goal amount
-        goal.currentAmount = (goal.currentAmount || 0) + payment.amount;
-      } else if (payment.direction === 'Credit') {
-        // Credit decreases goal amount
-        goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - payment.amount);
-      }
+    // Regular payment effects (use direction instead of type)
+    if (payment.direction === 'Debit') {
+      // Debit increases goal amount
+      goal.currentAmount = (goal.currentAmount || 0) + payment.amount;
+    } else if (payment.direction === 'Credit') {
+      // Credit decreases goal amount
+      goal.currentAmount = Math.max(0, (goal.currentAmount || 0) - payment.amount);
+    }
 
     // Check if Shopify goal is complete
     if ((goal instanceof ShopifySavingsGoal) && goal.currentAmount >= goal.targetAmount) {
@@ -286,6 +287,34 @@ class SavingsGoalService {
         // Don't throw - goal state is already updated, order creation failure shouldn't block
       }
     }
+
+    // Send email notification to user (savings or guest)
+    try {
+      let userEmail = null;
+      
+      // Try to get email from User model if userId exists
+      if (goal.userId) {
+        const user = await User.findById(goal.userId);
+        if (user && user.email) {
+          userEmail = user.email;
+        }
+      }
+      
+      // Fall back to guestEmail if no user email found
+      if (!userEmail && goal.guestEmail) {
+        userEmail = goal.guestEmail;
+      }
+      
+      // Send email if we have an email address
+      if (userEmail) {
+        await emailService.sendPaymentCompletedEmail(userEmail, payment);
+      } else {
+        console.warn(`No email found for goal ${goal._id} - cannot send payment completed email`);
+      }
+    } catch (error) {
+      console.error('Error sending payment completed email:', error);
+      // Don't throw - email failure shouldn't block payment processing
+    }    
   }
 
   /**

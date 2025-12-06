@@ -13,6 +13,15 @@ const CheckoutCart = require('../../models/CheckoutCart');
 // Mock PaymentService
 jest.mock('../../services/paymentService');
 
+// Mock EmailService
+jest.mock('../../services/emailService', () => ({
+  sendPaymentCompletedEmail: jest.fn().mockResolvedValue({ success: true })
+}));
+
+// Get reference to mocked emailService
+const emailService = require('../../services/emailService');
+const mockEmailService = emailService;
+
 // Mock Shopify API
 const mockShopifyClient = {
   request: jest.fn()
@@ -81,6 +90,10 @@ describe('SavingsGoalService', () => {
       getPaymentsByBatchId: jest.fn()
     };
     PaymentService.mockImplementation(() => mockPaymentService);
+    
+    // Reset email service mock
+    mockEmailService.sendPaymentCompletedEmail.mockClear();
+    mockEmailService.sendPaymentCompletedEmail.mockResolvedValue({ success: true });
     
     savingsGoalService = new SavingsGoalService();
   });
@@ -655,6 +668,233 @@ describe('SavingsGoalService', () => {
       expect(updatedGoal.currentAmount).toBe(500); // Should not change
 
       consoleSpy.mockRestore();
+    });
+  });
+
+  describe('handlePaymentCompleted', () => {
+    let testUser;
+    let testGoal;
+    let paymentAccount;
+    let payment;
+
+    beforeEach(async () => {
+      testUser = new User({
+        email: 'savings-user@example.com',
+        unitAccountId: 'unit-account-123'
+      });
+      await testUser.save();
+
+      paymentAccount = new PaymentAccount({
+        userId: testUser._id,
+        plaidProcessorToken: 'plaid-token-123',
+        bankName: 'Test Bank',
+        accountType: 'checking',
+        isActive: true
+      });
+      await paymentAccount.save();
+
+      testGoal = new ManualSavingsGoal({
+        userId: testUser._id,
+        goalName: 'Test Goal',
+        targetAmount: 1000,
+        currentAmount: 500,
+        category: 'other'
+      });
+      await testGoal.save();
+
+      payment = new Payment({
+        paymentId: 'payment-completed-123',
+        savingsGoalId: testGoal._id,
+        userId: testUser._id,
+        paymentAccountId: paymentAccount._id,
+        direction: 'Debit',
+        amount: 100,
+        status: 'completed',
+        paymentType: 'manual_installment',
+        date: new Date('2024-01-15')
+      });
+      await payment.save();
+    });
+
+    it('should send email to savings user when payment completes', async () => {
+      await savingsGoalService.handlePaymentCompleted(testGoal, payment);
+
+      expect(mockEmailService.sendPaymentCompletedEmail).toHaveBeenCalledTimes(1);
+      expect(mockEmailService.sendPaymentCompletedEmail).toHaveBeenCalledWith(
+        'savings-user@example.com',
+        payment
+      );
+    });
+
+    it('should send email to guest user when guestEmail is set', async () => {
+      // Create goal without userId but with guestEmail
+      const guestGoal = new ManualSavingsGoal({
+        goalName: 'Guest Goal',
+        targetAmount: 500,
+        currentAmount: 200,
+        category: 'other',
+        guestEmail: 'guest@example.com'
+      });
+      await guestGoal.save();
+
+      const guestPayment = new Payment({
+        paymentId: 'payment-guest-123',
+        savingsGoalId: guestGoal._id,
+        paymentAccountId: paymentAccount._id,
+        direction: 'Debit',
+        amount: 50,
+        status: 'completed',
+        paymentType: 'manual_installment',
+        date: new Date('2024-01-15')
+      });
+      await guestPayment.save();
+
+      await savingsGoalService.handlePaymentCompleted(guestGoal, guestPayment);
+
+      expect(mockEmailService.sendPaymentCompletedEmail).toHaveBeenCalledWith(
+        'guest@example.com',
+        guestPayment
+      );
+    });
+
+    it('should prefer user email over guestEmail when both exist', async () => {
+      testGoal.guestEmail = 'guest@example.com';
+      await testGoal.save();
+
+      await savingsGoalService.handlePaymentCompleted(testGoal, payment);
+
+      expect(mockEmailService.sendPaymentCompletedEmail).toHaveBeenCalledWith(
+        'savings-user@example.com',
+        payment
+      );
+      expect(mockEmailService.sendPaymentCompletedEmail).not.toHaveBeenCalledWith(
+        'guest@example.com',
+        expect.anything()
+      );
+    });
+
+    it('should update goal amount correctly for debit payment', async () => {
+      await savingsGoalService.handlePaymentCompleted(testGoal, payment);
+      await testGoal.save();
+
+      const updatedGoal = await SavingsGoal.findById(testGoal._id);
+      expect(updatedGoal.currentAmount).toBe(600); // 500 + 100
+    });
+
+    it('should update goal amount correctly for credit payment', async () => {
+      payment.direction = 'Credit';
+      await payment.save();
+      testGoal.currentAmount = 500;
+      await testGoal.save();
+
+      await savingsGoalService.handlePaymentCompleted(testGoal, payment);
+      await testGoal.save();
+
+      const updatedGoal = await SavingsGoal.findById(testGoal._id);
+      expect(updatedGoal.currentAmount).toBe(400); // 500 - 100
+    });
+
+    it('should not allow negative goal amount for credit payment', async () => {
+      payment.direction = 'Credit';
+      await payment.save();
+      testGoal.currentAmount = 50;
+      await testGoal.save();
+
+      await savingsGoalService.handlePaymentCompleted(testGoal, payment);
+      await testGoal.save();
+
+      const updatedGoal = await SavingsGoal.findById(testGoal._id);
+      expect(updatedGoal.currentAmount).toBe(0); // Should not go negative
+    });
+
+    it('should log warning when no email is available', async () => {
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      
+      // Create goal without userId and without guestEmail
+      const goalWithoutEmail = new ManualSavingsGoal({
+        goalName: 'No Email Goal',
+        targetAmount: 500,
+        currentAmount: 200,
+        category: 'other'
+      });
+      await goalWithoutEmail.save();
+
+      const paymentNoEmail = new Payment({
+        paymentId: 'payment-no-email-123',
+        savingsGoalId: goalWithoutEmail._id,
+        paymentAccountId: paymentAccount._id,
+        direction: 'Debit',
+        amount: 50,
+        status: 'completed',
+        paymentType: 'manual_installment',
+        date: new Date('2024-01-15')
+      });
+      await paymentNoEmail.save();
+
+      await savingsGoalService.handlePaymentCompleted(goalWithoutEmail, paymentNoEmail);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('No email found for goal')
+      );
+      expect(mockEmailService.sendPaymentCompletedEmail).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should continue processing even if email sending fails', async () => {
+      const emailError = new Error('Email service error');
+      mockEmailService.sendPaymentCompletedEmail.mockRejectedValue(emailError);
+      
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      await savingsGoalService.handlePaymentCompleted(testGoal, payment);
+      await testGoal.save();
+
+      // Payment processing should continue
+      const updatedGoal = await SavingsGoal.findById(testGoal._id);
+      expect(updatedGoal.currentAmount).toBe(600); // Amount should still be updated
+
+      // Error should be logged
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Error sending payment completed email:',
+        emailError
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should handle special case for Shopify refunds', async () => {
+      const shopifyGoal = new ShopifySavingsGoal({
+        userId: testUser._id,
+        goalName: 'Shopify Goal',
+        targetAmount: 1000,
+        currentAmount: 500,
+        shopDomain: 'test-shop.myshopify.com',
+        checkoutCartId: new mongoose.Types.ObjectId()
+      });
+      await shopifyGoal.save();
+
+      const refundPayment = new Payment({
+        paymentId: 'refund-123',
+        savingsGoalId: shopifyGoal._id,
+        userId: testUser._id,
+        paymentAccountId: paymentAccount._id,
+        direction: 'Credit',
+        amount: 500,
+        status: 'completed',
+        paymentType: 'refund',
+        tags: { type: 'shopifyRefund' },
+        date: new Date('2024-01-15')
+      });
+      await refundPayment.save();
+
+      await savingsGoalService.handlePaymentCompleted(shopifyGoal, refundPayment);
+      await shopifyGoal.save();
+
+      const updatedGoal = await SavingsGoal.findById(shopifyGoal._id);
+      expect(updatedGoal.currentAmount).toBe(0);
+      expect(updatedGoal.isPaused).toBe(true);
+      expect(updatedGoal.savingsAmount).toBe(0);
     });
   });
 

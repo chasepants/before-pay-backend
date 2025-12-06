@@ -165,7 +165,25 @@ router.get('/merchant/:shopDomain', ensureAuthenticated, async (req, res) => {
 router.get('/:id', ensureAuthenticated, async (req, res) => {
   const { id } = req.params;
   try {
-    const goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
+    // First try to find goal by userId (for regular users)
+    let goal = await SavingsGoal.findOne({ _id: id, userId: req.user._id });
+    
+    // If not found and user is a merchant, check if goal belongs to their shop
+    if (!goal && req.user.userType === 'merchant') {
+      const user = await User.findById(req.user._id).populate('shopifyMerchantId');
+      if (user && user.shopifyMerchantId) {
+        const merchant = await ShopifyMerchant.findById(user.shopifyMerchantId);
+        if (merchant) {
+          // For Shopify goals, check if shopDomain matches
+          goal = await SavingsGoal.findOne({ 
+            _id: id, 
+            __t: 'ShopifySavingsGoal',
+            shopDomain: merchant.shopDomain 
+          });
+        }
+      }
+    }
+    
     if (!goal) return res.status(404).json({ error: 'Savings goal not found' });
     
     // Convert to plain object to allow dynamic properties

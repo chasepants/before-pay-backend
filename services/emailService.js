@@ -30,6 +30,48 @@ class EmailService {
     }
   }
 
+  async sendPaymentCompletedEmail(email, payment) {
+    try {
+      // Format payment amount as currency
+      const formattedAmount = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD'
+      }).format(payment.amount);
+      
+      // Format payment date
+      const formattedDate = payment.date 
+        ? new Date(payment.date).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          })
+        : new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          });
+
+      const msg = {
+        to: email,
+        from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
+        templateId: 'd-507d398bd5ae4b4ca3c2512a8fb3461f',
+        dynamicTemplateData: {
+          PAYMENT_ID: payment.paymentId || 'N/A',
+          AMOUNT: formattedAmount,
+          DATE: formattedDate
+        }
+      };
+
+      const result = await sgMail.send(msg);
+      console.log(`Payment completed email sent successfully to ${email}`);
+      return { success: true };
+      
+    } catch (error) {
+      console.error('Error sending payment completed email:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   // Test email sending (for development)
   async testEmail(toEmail) {
     try {

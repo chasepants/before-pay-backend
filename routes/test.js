@@ -355,21 +355,22 @@ router.delete('/cleanup-user', requireTestEnvironment, async (req, res) => {
     const user = await User.findOne({ email });
     
     if (user) {
-      // Find and cleanup any Shopify savings goals and their checkout carts
-      const shopifyGoals = await SavingsGoal.find({ 
-        userId: user._id,
-        __t: 'ShopifySavingsGoal'
-      });
+      // Find and delete all savings goals for this user
+      const allGoals = await SavingsGoal.find({ userId: user._id });
       
-      for (const goal of shopifyGoals) {
-        if (goal.checkoutCartId) {
-          // Reset checkout cart orderId to empty string
+      for (const goal of allGoals) {
+        // For Shopify goals, reset checkout cart orderId before deleting
+        if (goal.__t === 'ShopifySavingsGoal' && goal.checkoutCartId) {
           await CheckoutCart.updateOne(
             { _id: goal.checkoutCartId },
             { $set: { orderId: '' } }
           );
           console.log(`[TEST] Reset orderId for checkout cart: ${goal.checkoutCartId}`);
         }
+        
+        // Delete the savings goal
+        await SavingsGoal.deleteOne({ _id: goal._id });
+        console.log(`[TEST] Deleted savings goal: ${goal._id}`);
       }
 
       // Delete from Firebase if uid exists
