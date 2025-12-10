@@ -78,6 +78,99 @@ class EmailService {
     }
   }
 
+  async sendPaymentReminderEmail(email, amount, date) {
+    try {
+      const msg = {
+        to: email,
+        from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
+        templateId: 'd-8f8278d638c640a4aa9555cc899e4197',
+        dynamic_template_data: {
+          AMOUNT: amount,
+          DATE: date
+        }
+      };
+
+      const result = await sgMail.send(msg);
+      console.log(`Payment reminder email sent successfully to ${email}`);
+      return { success: true };
+      
+    } catch (error) {
+      console.error('Error sending payment reminder email:', error);
+      if (error.response && error.response.body && error.response.body.errors) {
+        console.error('SendGrid error details:', JSON.stringify(error.response.body.errors, null, 2));
+      }
+      const errorMessage = error.response?.body?.errors?.[0]?.message || error.message;
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  async sendOrderCompletedEmailCustomer(email, orderId, shopDomain, totalAmount) {
+    try {
+      // Format order total as currency
+      const formattedAmount = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD'
+      }).format(parseFloat(totalAmount) || 0);
+
+      const msg = {
+        to: email,
+        from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
+        templateId: 'd-397fc28d7d55461cb7cacaa751b20627', // TODO: Replace with actual template ID
+        dynamic_template_data: {
+          ORDER_ID: orderId || 'N/A',
+          SHOP_DOMAIN: shopDomain || 'N/A',
+          TOTAL_AMOUNT: formattedAmount
+        }
+      };
+
+      const result = await sgMail.send(msg);
+      console.log(`Order completed email sent successfully to customer ${email}`);
+      return { success: true };
+      
+    } catch (error) {
+      console.error('Error sending order completed email to customer:', error);
+      if (error.response && error.response.body && error.response.body.errors) {
+        console.error('SendGrid error details:', JSON.stringify(error.response.body.errors, null, 2));
+      }
+      const errorMessage = error.response?.body?.errors?.[0]?.message || error.message;
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  async sendOrderCompletedEmailMerchant(email, orderId, shopDomain, totalAmount, customerEmail) {
+    try {
+      // Format order total as currency
+      const formattedAmount = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD'
+      }).format(parseFloat(totalAmount) || 0);
+
+      const msg = {
+        to: email,
+        from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
+        templateId: 'd-ORDER_COMPLETED_MERCHANT_TEMPLATE_ID', // TODO: Replace with actual template ID
+        dynamic_template_data: {
+          ORDER_ID: orderId || 'N/A',
+          SHOP_DOMAIN: shopDomain || 'N/A',
+          TOTAL_AMOUNT: formattedAmount,
+          CUSTOMER_EMAIL: customerEmail || 'N/A'
+        }
+      };
+
+      const result = await sgMail.send(msg);
+      console.log(`Order completed email sent successfully to merchant ${email}`);
+      return { success: true };
+      
+    } catch (error) {
+      console.error('Error sending order completed email to merchant:', error);
+      if (error.response && error.response.body && error.response.body.errors) {
+        console.error('SendGrid error details:', JSON.stringify(error.response.body.errors, null, 2));
+      }
+      const errorMessage = error.response?.body?.errors?.[0]?.message || error.message;
+      return { success: false, error: errorMessage };
+    }
+  }
+
   async sendEmail({ to, subject, html, text }) {
     try {
       const msg = {

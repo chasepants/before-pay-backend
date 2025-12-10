@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { processScheduledPayments } = require('../cron/process-scheduled-payments');
 const { processAbandonedCarts } = require('../cron/abandoned-carts');
+const { sendPaymentReminders } = require('../cron/send-payment-reminders');
 
 /**
  * Middleware to verify cron secret
@@ -37,6 +38,19 @@ router.get('/abandoned-carts', requireCronSecret, async (req, res) => {
   } catch (e) {
     console.error('Abandoned carts cron route error:', e);
     res.status(500).json({ error: 'Abandoned carts cron failed' });
+  }
+});
+
+// Send payment reminder emails cron endpoint
+router.get('/send-payment-reminders', requireCronSecret, async (req, res) => {
+  try {
+    console.log('Payment reminders cron job started at:', new Date().toISOString());
+    await sendPaymentReminders();
+    console.log('Payment reminders cron job completed at:', new Date().toISOString());
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Payment reminders cron route error:', e);
+    res.status(500).json({ error: 'Payment reminders cron failed' });
   }
 });
 

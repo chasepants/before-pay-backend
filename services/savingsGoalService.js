@@ -475,6 +475,57 @@ class SavingsGoalService {
       cart.status = 'completed';
       await cart.save();
       console.log(`CheckoutCart updated with orderId: ${numericOrderId}`);
+      
+      // Send order completion emails to customer and merchant
+      try {
+        // Get customer email from cart
+        const customerEmail = cart.email;
+        
+        // Get merchant email from Shopify API
+        let merchantEmail = null;
+        try {
+          const shopQuery = `#graphql
+            query {
+              shop {
+                email
+              }
+            }
+          `;
+          const shopResponse = await client.request(shopQuery);
+          merchantEmail = shopResponse.data?.shop?.email;
+        } catch (shopError) {
+          console.warn(`Could not fetch merchant email from Shopify for ${goal.shopDomain}:`, shopError.message);
+        }
+        
+        // Send customer email
+        if (customerEmail) {
+          await emailService.sendOrderCompletedEmailCustomer(
+            customerEmail,
+            numericOrderId,
+            goal.shopDomain,
+            cart.totalPrice
+          );
+        } else {
+          console.warn(`No customer email found for order ${numericOrderId}`);
+        }
+        
+        // Send merchant email
+        if (merchantEmail) {
+          await emailService.sendOrderCompletedEmailMerchant(
+            merchantEmail,
+            numericOrderId,
+            goal.shopDomain,
+            cart.totalPrice,
+            customerEmail
+          );
+        } else {
+          console.warn(`No merchant email found for order ${numericOrderId} - shop: ${goal.shopDomain}`);
+        }
+        
+      } catch (error) {
+        console.error('Error sending order completion emails:', error);
+        // Don't throw - order creation succeeded, email failure shouldn't block
+      }
     } else {
       console.warn('Could not extract order ID from response:', orderId);
     }

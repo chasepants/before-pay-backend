@@ -8,6 +8,14 @@
         {
             "path": "/api/cron/process-payments?token=Beforepay1234!",
             "schedule": "0 12 * * *"
+        },
+        {
+            "path": "/api/cron/send-payment-reminders?token=Beforepay1234!",
+            "schedule": "0 10 * * *"
+        },
+        {
+            "path": "/api/cron/abandoned-carts?token=Beforepay1234!",
+            "schedule": "0 * * * *"
         }
     ]
 }
