@@ -29,7 +29,7 @@ describe('EmailService', () => {
         to: email,
         from: 'noreply@gostashpay.com',
         templateId: 'd-336f5143505f407f95d87ded5c2f19ab',
-        dynamicTemplateData: {
+        dynamic_template_data: {
           VERIFICATION_CODE: verificationCode
         }
       });
@@ -122,7 +122,7 @@ describe('EmailService', () => {
           to: email,
           from: 'noreply@gostashpay.com',
           templateId: 'd-32df5e583d744879bc365fb044e8cbe7',
-          dynamicTemplateData: expect.objectContaining({
+          dynamic_template_data: expect.objectContaining({
             PAYMENT_ID: 'payment-123',
             AMOUNT: '$50.00',
             DATE: expect.stringMatching(/^January \d{1,2}, 2024$/)
@@ -143,7 +143,7 @@ describe('EmailService', () => {
 
       expect(sgMail.send).toHaveBeenCalledWith(
         expect.objectContaining({
-          dynamicTemplateData: expect.objectContaining({
+          dynamic_template_data: expect.objectContaining({
             AMOUNT: '$1,234.56'
           })
         })
@@ -162,7 +162,7 @@ describe('EmailService', () => {
 
       expect(sgMail.send).toHaveBeenCalledWith(
         expect.objectContaining({
-          dynamicTemplateData: expect.objectContaining({
+          dynamic_template_data: expect.objectContaining({
             DATE: expect.stringMatching(/^December \d{1,2}, 2024$/)
           })
         })
@@ -183,7 +183,7 @@ describe('EmailService', () => {
 
       expect(sgMail.send).toHaveBeenCalled();
       const callArgs = sgMail.send.mock.calls[0][0];
-      const formattedDate = callArgs.dynamicTemplateData.DATE;
+      const formattedDate = callArgs.dynamic_template_data.DATE;
       
       // Should be a formatted date string
       expect(formattedDate).toMatch(/^(January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}, \d{4}$/);
@@ -202,7 +202,7 @@ describe('EmailService', () => {
       expect(result.success).toBe(true);
       expect(sgMail.send).toHaveBeenCalledWith(
         expect.objectContaining({
-          dynamicTemplateData: expect.objectContaining({
+          dynamic_template_data: expect.objectContaining({
             PAYMENT_ID: 'N/A'
           })
         })

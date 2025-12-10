@@ -15,7 +15,7 @@ class EmailService {
         to: email,
         from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
         templateId: 'd-336f5143505f407f95d87ded5c2f19ab',
-        dynamicTemplateData: {
+        dynamic_template_data: {
           VERIFICATION_CODE: verificationCode
         }
       };
@@ -55,7 +55,7 @@ class EmailService {
         to: email,
         from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
         templateId: 'd-32df5e583d744879bc365fb044e8cbe7',
-        dynamicTemplateData: {
+        dynamic_template_data: {
           PAYMENT_ID: payment.paymentId || 'N/A',
           AMOUNT: formattedAmount,
           DATE: formattedDate
