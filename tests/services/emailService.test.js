@@ -121,7 +121,7 @@ describe('EmailService', () => {
         expect.objectContaining({
           to: email,
           from: 'noreply@gostashpay.com',
-          templateId: 'd-507d398bd5ae4b4ca3c2512a8fb3461f',
+          templateId: 'd-32df5e583d744879bc365fb044e8cbe7',
           dynamicTemplateData: expect.objectContaining({
             PAYMENT_ID: 'payment-123',
             AMOUNT: '$50.00',
