@@ -56,13 +56,14 @@ class EmailService {
         from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
         templateId: 'd-32df5e583d744879bc365fb044e8cbe7',
         dynamic_template_data: {
-          PAYMENT_ID: payment.paymentId || 'N/A',
-          AMOUNT: formattedAmount,
-          DATE: formattedDate
+          PAYMENT_ID: '12345',
+          AMOUNT: '100',
+          DATE: '12/19/2025'
         }
       };
 
       const result = await sgMail.send(msg);
+      console.log(result);
       console.log(`Payment completed email sent successfully to ${email}`);
       return { success: true };
       
