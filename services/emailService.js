@@ -56,9 +56,9 @@ class EmailService {
         from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
         templateId: 'd-32df5e583d744879bc365fb044e8cbe7',
         dynamic_template_data: {
-          PAYMENT_ID: '12345',
-          AMOUNT: '100',
-          DATE: '12/19/2025'
+          PAYMENT_ID: payment.paymentId || 'N/A',
+          AMOUNT: formattedAmount,
+          DATE: formattedDate
         }
       };
 
@@ -73,6 +73,30 @@ class EmailService {
         console.error('SendGrid error details:', JSON.stringify(error.response.body.errors, null, 2));
       }
       // Include more details in the error message for debugging
+      const errorMessage = error.response?.body?.errors?.[0]?.message || error.message;
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  async sendEmail({ to, subject, html, text }) {
+    try {
+      const msg = {
+        to: to,
+        from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
+        subject: subject,
+        html: html,
+        text: text
+      };
+
+      const result = await sgMail.send(msg);
+      console.log('Email sent successfully');
+      return { success: true };
+      
+    } catch (error) {
+      console.error('Error sending email:', error);
+      if (error.response && error.response.body && error.response.body.errors) {
+        console.error('SendGrid error details:', JSON.stringify(error.response.body.errors, null, 2));
+      }
       const errorMessage = error.response?.body?.errors?.[0]?.message || error.message;
       return { success: false, error: errorMessage };
     }
