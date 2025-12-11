@@ -15,7 +15,7 @@
         },
         {
             "path": "/api/cron/abandoned-carts?token=Beforepay1234!",
-            "schedule": "0 * * * *"
+            "schedule": "0 8 * * *"
         }
     ]
 }
