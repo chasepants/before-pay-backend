@@ -398,7 +398,7 @@ class SavingsGoalService {
     const shopify = shopifyApi({
       apiKey: process.env.SHOPIFY_CLIENT_ID,
       apiSecretKey: process.env.SHOPIFY_CLIENT_SECRET,
-      scopes: ['write_orders', 'read_customers'],
+      scopes: ['write_orders', 'read_customers', 'read_orders'],
       hostName: 'ngrok-tunnel-address',
       apiVersion: ApiVersion.July25,
       isTesting: true

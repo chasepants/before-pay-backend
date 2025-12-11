@@ -405,10 +405,10 @@ router.delete('/cleanup-user', requireTestEnvironment, async (req, res) => {
   }
 });
 
-// Test-only endpoint to reset checkout cart orderId
+// Test-only endpoint to reset checkout cart orderId and optionally update email
 router.post('/reset-checkout-cart', requireTestEnvironment, async (req, res) => {
   try {
-    const { checkoutId } = req.body;
+    const { checkoutId, email } = req.body;
 
     if (!checkoutId) {
       return res.status(400).json({ error: 'Checkout ID is required' });
@@ -421,13 +421,21 @@ router.post('/reset-checkout-cart', requireTestEnvironment, async (req, res) => 
     }
 
     cart.orderId = '';
+    
+    // Update email if provided
+    if (email) {
+      cart.email = email;
+      console.log(`[TEST] Updated email for checkout cart ${checkoutId} to ${email}`);
+    }
+    
     await cart.save();
 
     console.log(`[TEST] Reset orderId for checkout cart: ${checkoutId}`);
 
     res.json({ 
       success: true,
-      message: `Checkout cart ${checkoutId} orderId reset`
+      message: `Checkout cart ${checkoutId} orderId reset${email ? ` and email updated to ${email}` : ''}`,
+      email: cart.email
     });
   } catch (error) {
     console.error('[TEST] Reset checkout cart failed:', error);
@@ -600,4 +608,3 @@ router.post('/approve-application', requireTestEnvironment, async (req, res) => 
 });
 
 module.exports = router;
-
