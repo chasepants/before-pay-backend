@@ -115,7 +115,7 @@ class EmailService {
       const msg = {
         to: email,
         from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
-        templateId: 'd-397fc28d7d55461cb7cacaa751b20627', // TODO: Replace with actual template ID
+        templateId: 'd-397fc28d7d55461cb7cacaa751b20627',
         dynamic_template_data: {
           ORDER_ID: orderId || 'N/A',
           SHOP_DOMAIN: shopDomain || 'N/A',
@@ -148,7 +148,7 @@ class EmailService {
       const msg = {
         to: email,
         from: process.env.FROM_EMAIL || 'noreply@gostashpay.com',
-        templateId: 'd-ORDER_COMPLETED_MERCHANT_TEMPLATE_ID', // TODO: Replace with actual template ID
+        templateId: 'd-397fc28d7d55461cb7cacaa751b20627', // TODO: Replace with actual template ID
         dynamic_template_data: {
           ORDER_ID: orderId || 'N/A',
           SHOP_DOMAIN: shopDomain || 'N/A',
